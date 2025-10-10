@@ -1,8 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API
-  version: "1.0.1"
-  description: API สำหรับตรวจสอบวันจริงและคำนวณดวงพื้นดวง
+  title: Astro Weekday API (Pro Auto)
+  version: "2.1.0"
+  description: |
+    API สำหรับตรวจสอบวันจริง และคำนวณพื้นดวง / ดาวจร / ดวงคู่
+    รองรับทั้งระบบราศีสากล (Tropical) และนิรายนะ (Sidereal)
+    โดยเลือกอัตโนมัติจากประเทศหรือ timezone
 
 servers:
   - url: https://astro-weekday-pro-auto.vercel.app
@@ -16,27 +19,65 @@ paths:
         - name: date
           in: query
           required: true
-          schema: { type: string, example: "08/05/2569" }
+          schema:
+            type: string
+            example: "10/09/2568"
+          description: วันที่รูปแบบ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.)
       responses:
         "200":
           description: Successful Response
 
   /api/weekday-th:
     get:
-      operationId: getThaiDate
-      summary: คืนข้อความวันที่ไทยสำเร็จรูป (ตรวจวันจริง + แปลง พ.ศ.)
+      operationId: getWeekdayThai
+      summary: แปลงวันที่ไทยและแสดงวันจริง
       parameters:
         - name: date
           in: query
           required: true
-          schema: { type: string, example: "08/05/2569" }
+          schema:
+            type: string
+            example: "10/09/2568"
         - name: style
           in: query
           required: false
           schema:
             type: string
-            enum: ["short","long"]
+            enum: ["short", "long"]
             default: "short"
+      responses:
+        "200":
+          description: Successful Response
+
+  /api/astro-weekday:
+    get:
+      operationId: getAstroWeekday
+      summary: ตรวจสอบวันจริง + เวลา + timezone + สถานที่เกิด
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "24/11/2514"
+        - name: time
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "11:00"
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
+        - name: place
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Bangkok"
       responses:
         "200":
           description: Successful Response
@@ -44,22 +85,146 @@ paths:
   /api/astro-chart:
     get:
       operationId: getAstroChart
-      summary: คำนวณดวงดาวพื้นดวง (จำลอง)
+      summary: คำนวณพื้นดวง (เลือก sidereal/tropical อัตโนมัติ)
       parameters:
         - name: date
           in: query
           required: true
-          schema: { type: string, example: "24/11/2514" }
+          schema:
+            type: string
+            example: "24/11/2514"
         - name: time
           in: query
           required: true
-          schema: { type: string, example: "11:00" }
+          schema:
+            type: string
+            example: "11:00"
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
         - name: lat
           in: query
-          schema: { type: number, example: 13.75 }
+          required: false
+          schema:
+            type: number
+            example: 13.75
         - name: lon
           in: query
-          schema: { type: number, example: 100.5 }
+          required: false
+          schema:
+            type: number
+            example: 100.5
+      responses:
+        "200":
+          description: Successful Response
+
+  /api/astro-transit:
+    get:
+      operationId: getAstroTransit
+      summary: วิเคราะห์ดาวจรเทียบพื้นดวง
+      parameters:
+        - name: base_date
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "24/11/2514"
+        - name: base_time
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "12:00"
+        - name: target_date
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "08/05/2569"
+        - name: lat
+          in: query
+          required: false
+          schema:
+            type: number
+            example: 13.75
+        - name: lon
+          in: query
+          required: false
+          schema:
+            type: number
+            example: 100.5
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
+      responses:
+        "200":
+          description: Successful Response
+
+  /api/astro-match:
+    get:
+      operationId: getAstroMatch
+      summary: วิเคราะห์ดวงคู่ (ความสัมพันธ์)
+      parameters:
+        - name: date1
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "24/11/2514"
+        - name: time1
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "11:00"
+        - name: lat1
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 13.75
+        - name: lon1
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 100.5
+        - name: date2
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "08/06/2514"
+        - name: time2
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "23:56"
+        - name: lat2
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 18.79
+        - name: lon2
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 98.98
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
       responses:
         "200":
           description: Successful Response
