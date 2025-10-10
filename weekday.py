@@ -145,4 +145,186 @@ def get_weekday_th(date: str, style: Optional[str] = "short"):
 def get_astro_weekday(
     date: str,
     time: Optional[str] = None,
-    timezone: Optional[s]()
+    timezone: Optional[str] = "Asia/Bangkok",
+    place: Optional[str] = None
+):
+    d, cal = parse_ddmmyyyy_th(date)
+
+    # เวลา
+    if time:
+        try:
+            t = datetime.strptime(time, "%H:%M").time()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="รูปแบบเวลาไม่ถูกต้อง (ต้องเป็น HH:MM)")
+    else:
+        t = datetime.min.time()  # 00:00
+
+    # timezone
+    try:
+        tz = zoneinfo.ZoneInfo(timezone)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"ไม่รู้จัก timezone: {timezone}")
+
+    dt_local = datetime.combine(d, t).replace(tzinfo=tz)
+    dt_utc = dt_local.astimezone(zoneinfo.ZoneInfo("UTC"))
+    weekday_th = DAYS_TH[dt_local.weekday()]
+
+    result = {
+        "date": date,
+        "time": time or "00:00",
+        "timezone": timezone,
+        "weekday": weekday_th,
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal,
+        "local_datetime": dt_local.isoformat(),
+        "utc_datetime": dt_utc.isoformat(),
+    }
+    if place:
+        result["place"] = place
+    return result
+
+
+# ------------------------------
+# /api/astro-chart  — ดวงพื้นดวง (auto sidereal/tropical)
+# ------------------------------
+@app.get("/api/astro-chart")
+def get_astro_chart(
+    date: str,
+    time: str,
+    timezone: str = "Asia/Bangkok",
+    lat: float = 13.75,
+    lon: float = 100.50
+):
+    d, cal = parse_ddmmyyyy_th(date)
+    # เลือกระบบราศีอัตโนมัติ
+    zodiac_system = detect_zodiac_system(lat, lon, timezone)
+
+    try:
+        planets = astro_chart.compute_chart(d, time, timezone, lat, lon, zodiac_system)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"compute_chart error: {e}")
+
+    # แถมเวลา UTC/Local ไว้อ้างอิง
+    try:
+        tz = zoneinfo.ZoneInfo(timezone)
+        dt_local = datetime.combine(d, datetime.strptime(time, "%H:%M").time()).replace(tzinfo=tz)
+        dt_utc = dt_local.astimezone(zoneinfo.ZoneInfo("UTC"))
+    except Exception:
+        dt_local = None
+        dt_utc = None
+
+    return {
+        "input": {
+            "date": date, "time": time, "timezone": timezone,
+            "lat": lat, "lon": lon, "auto_system": zodiac_system
+        },
+        "resolved_gregorian": d.isoformat(),
+        "local_datetime": dt_local.isoformat() if dt_local else None,
+        "utc_datetime": dt_utc.isoformat() if dt_utc else None,
+        "planets": planets
+    }
+
+
+# ------------------------------
+# /api/astro-transit — ดาวจรเทียบพื้นดวง
+# ------------------------------
+@app.get("/api/astro-transit")
+def get_astro_transit(
+    base_date: str,
+    base_time: str = "12:00",
+    target_date: Optional[str] = None,
+    lat: float = 13.75,
+    lon: float = 100.5,
+    timezone: str = "Asia/Bangkok"
+):
+    base_d, _ = parse_ddmmyyyy_th(base_date)
+    if target_date:
+        target_d, _ = parse_ddmmyyyy_th(target_date)
+    else:
+        # ใช้วันที่ปัจจุบันตาม timezone ที่ระบุ
+        now_local = datetime.now(zoneinfo.ZoneInfo(timezone)).date()
+        target_d = now_local
+
+    zodiac_system = detect_zodiac_system(lat, lon, timezone)
+
+    natal = astro_chart.compute_chart(base_d, base_time, timezone, lat, lon, zodiac_system)
+    transit = astro_chart.compute_chart(target_d, "12:00", timezone, lat, lon, zodiac_system)
+
+    # วิเคราะห์เบื้องต้นแบบง่าย (ทับ / เล็ง)
+    interactions = []
+    for p, nval in natal.items():
+        if p in transit:
+            diff = abs(nval["lon"] - transit[p]["lon"])
+            diff = diff if diff <= 180 else 360 - diff
+            if diff <= 10:
+                interactions.append(f"{p}: ดาวจรทับดาวเดิม (แรง)")
+            elif 170 <= diff <= 190:
+                interactions.append(f"{p}: ดาวจรเล็งดาวเดิม (กดดัน)")
+
+    return {
+        "system": zodiac_system,
+        "natal_date": base_date,
+        "target_date": target_d.strftime("%d/%m/%Y"),
+        "natal": natal,
+        "transit": transit,
+        "analysis": interactions
+    }
+
+
+# ------------------------------
+# /api/astro-match — วิเคราะห์ดวงคู่
+# ------------------------------
+@app.get("/api/astro-match")
+def get_astro_match(
+    date1: str, time1: str, lat1: float, lon1: float,
+    date2: str, time2: str, lat2: float, lon2: float,
+    timezone: str = "Asia/Bangkok"
+):
+    d1, _ = parse_ddmmyyyy_th(date1)
+    d2, _ = parse_ddmmyyyy_th(date2)
+
+    sys1 = detect_zodiac_system(lat1, lon1, timezone)
+    sys2 = detect_zodiac_system(lat2, lon2, timezone)
+
+    c1 = astro_chart.compute_chart(d1, time1, timezone, lat1, lon1, sys1)
+    c2 = astro_chart.compute_chart(d2, time2, timezone, lat2, lon2, sys2)
+
+    # ให้คะแนนง่าย ๆ จาก Sun/Moon/Venus/Mars
+    score = 0
+    comments = []
+    for p in ["Sun", "Moon", "Venus", "Mars"]:
+        if c1[p]["sign"] == c2[p]["sign"]:
+            score += 25
+            comments.append(f"{p}: อยู่ราศีเดียวกัน (เข้าใจกันง่าย)")
+        elif abs(c1[p]["lon"] - c2[p]["lon"]) < 30:
+            score += 15
+            comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
+        else:
+            comments.append(f"{p}: ต่างราศี (ต้องปรับตัว)")
+
+    return {
+        "person1": {"date": date1, "time": time1, "system": sys1},
+        "person2": {"date": date2, "time": time2, "system": sys2},
+        "score": min(score, 100),
+        "comments": comments
+    }
+
+
+# ------------------------------
+# /openapi.yaml — เสิร์ฟ schema (ถ้าคุณวางไฟล์นี้ข้างๆ weekday.py)
+# ------------------------------
+@app.get("/openapi.yaml")
+def get_openapi_yaml():
+    import os
+    file_path = os.path.join(os.path.dirname(__file__), "openapi.yaml")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="openapi.yaml not found")
+    return FileResponse(file_path, media_type="text/yaml")
+
+
+# ------------------------------
+# run local (dev only)
+# ------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("weekday:app", host="0.0.0.0", port=8000, reload=True)
