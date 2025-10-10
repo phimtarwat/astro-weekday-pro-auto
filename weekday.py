@@ -1,209 +1,98 @@
+from datetime import datetime, date
 from fastapi import FastAPI, HTTPException
-from datetime import datetime
-from geopy.geocoders import Nominatim
+from fastapi.responses import JSONResponse
 from typing import Optional
-import flatlib_lite as astro_chart
+import zoneinfo
 
-app = FastAPI(title="Astro Weekday API", version="2.0.0")
+# 🌟 สำหรับโหราศาสตร์แบบจำลอง (ไม่ใช้ swisseph)
+from flatlib_lite import get_chart
+
+app = FastAPI()
+
+DAYS_TH = ["จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์","อาทิตย์"]
+MONTHS_TH_LONG = [
+    "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+    "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"
+]
+MONTHS_TH_SHORT = [
+    "ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.",
+    "ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."
+]
 
 # ------------------------------
-# 🔹 Utility: แปลงวันที่ไทย/สากล
+# ฟังก์ชัน: แปลง พ.ศ. / ค.ศ.
 # ------------------------------
-def parse_ddmmyyyy_th(date_str: str):
-    """แปลงวันที่จาก DD/MM/YYYY (รองรับ พ.ศ. / ค.ศ.)"""
-    day, month, year = [int(x) for x in date_str.split("/")]
-    if year > 2400:  # แปลง พ.ศ. → ค.ศ.
-        year -= 543
-    return datetime(year, month, day), "BE" if year < 2400 else "AD"
-
-# ------------------------------
-# 🔹 เลือกระบบราศีอัตโนมัติ (จาก lat/lon)
-# ------------------------------
-def detect_zodiac_system(lat: float, lon: float) -> str:
-    geolocator = Nominatim(user_agent="astro_api")
+def parse_ddmmyyyy_th(s: str) -> tuple[date, str]:
+    s = s.strip()
     try:
-        location = geolocator.reverse((lat, lon), language="en")
-        country = location.raw["address"].get("country", "").lower()
-    except Exception:
-        return "sidereal"  # fallback ไทย
+        d = datetime.strptime(s, "%d/%m/%Y").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น DD/MM/YYYY)")
+    calendar = "BE" if d.year >= 2400 else "CE"
+    if calendar == "BE":
+        d = d.replace(year=d.year - 543)
+    return d, calendar
 
-    sidereal_countries = [
-        "thailand", "laos", "myanmar", "burma", "cambodia",
-        "india", "sri lanka", "nepal", "bangladesh"
-    ]
-
-    for name in sidereal_countries:
-        if name in country:
-            return "sidereal"
-    return "tropical"
 
 # ------------------------------
-# 🔹 API หลัก
-# ------------------------------
-@app.get("/api/astro-chart")
-def get_astro_chart(
-    date: str,
-    time: str,
-    timezone: str = "Asia/Bangkok",
-    lat: float = 13.75,
-    lon: float = 100.5
-):
-    """คำนวณดวงดาวอัตโนมัติ — ใช้ราศีตามประเทศเกิด"""
-    d, cal = parse_ddmmyyyy_th(date)
-    zodiac_system = detect_zodiac_system(lat, lon)
-
-    try:
-        result = astro_chart.compute_chart(d, time, timezone, lat, lon, zodiac_system)
-        return {
-            "input": {
-                "date": date, "time": time, "timezone": timezone,
-                "lat": lat, "lon": lon, "auto_system": zodiac_system
-            },
-            "planets": result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ------------------------------
-# 🔹 ตรวจสอบวัน
+# ✅ /api/weekday
 # ------------------------------
 @app.get("/api/weekday")
 def get_weekday(date: str):
-    """ตรวจสอบวันจริงจากวันที่ (ไทย/สากล)"""
     d, cal = parse_ddmmyyyy_th(date)
-    weekday_th = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
-    wd = weekday_th[d.weekday()]
-    return {"date": date, "weekday": wd}
-
-# ------------------------------
-# 🪐 Transit: ดาวจรประจำวัน
-# ------------------------------
-@app.get("/api/astro-transit")
-def get_astro_transit(
-    base_date: str,
-    base_time: str = "12:00",
-    target_date: Optional[str] = None,
-    lat: float = 13.75,
-    lon: float = 100.5,
-    timezone: str = "Asia/Bangkok"
-):
-    """
-    แสดงตำแหน่งดาวจรเทียบกับพื้นดวง
-    - base_date = วันเกิด
-    - target_date = วันที่ต้องการดูดาวจร (ไม่ใส่ = วันนี้)
-    """
-    base_d, _ = parse_ddmmyyyy_th(base_date)
-    zodiac_system = detect_zodiac_system(lat, lon)
-
-    # วันที่เป้าหมาย (default = วันนี้)
-    if target_date:
-        target_d, _ = parse_ddmmyyyy_th(target_date)
-    else:
-        target_d = datetime.utcnow()
-
-    # ดาวพื้นดวง
-    natal = astro_chart.compute_chart(base_d, base_time, timezone, lat, lon, zodiac_system)
-    # ดาวจร
-    transit = astro_chart.compute_chart(target_d, "12:00", timezone, lat, lon, zodiac_system)
-
-    # วิเคราะห์เบื้องต้น
-    interactions = []
-    for p in natal:
-        if p in transit:
-            diff = abs(natal[p]["lon"] - transit[p]["lon"])
-            if diff < 10 or diff > 350:
-                interactions.append(f"{p}: ดาวจรทับดาวเดิม")
-            elif 170 < diff < 190:
-                interactions.append(f"{p}: ดาวจรเล็งดาวเดิม")
-
+    weekday = DAYS_TH[d.weekday()]
     return {
-        "system": zodiac_system,
-        "natal_date": base_date,
-        "target_date": target_d.strftime("%d/%m/%Y"),
-        "natal": natal,
-        "transit": transit,
-        "analysis": interactions
+        "date": date,
+        "weekday": weekday,
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal
     }
 
 
 # ------------------------------
-# 💞 Match: เปรียบเทียบดวงคู่
+# ✅ /api/weekday-th  (ใหม่)
 # ------------------------------
-@app.get("/api/astro-match")
-def get_astro_match(
-    date1: str, time1: str, lat1: float, lon1: float,
-    date2: str, time2: str, lat2: float, lon2: float,
-    timezone: str = "Asia/Bangkok"
-):
-    """
-    วิเคราะห์ดวงคู่แบบง่าย ๆ
-    - ดูว่าดาวของแต่ละคนสัมพันธ์กันอย่างไร
-    """
-    d1, _ = parse_ddmmyyyy_th(date1)
-    d2, _ = parse_ddmmyyyy_th(date2)
-
-    zodiac_system1 = detect_zodiac_system(lat1, lon1)
-    zodiac_system2 = detect_zodiac_system(lat2, lon2)
-
-    chart1 = astro_chart.compute_chart(d1, time1, timezone, lat1, lon1, zodiac_system1)
-    chart2 = astro_chart.compute_chart(d2, time2, timezone, lat2, lon2, zodiac_system2)
-
-    # วิเคราะห์ความสัมพันธ์ (ดูราศีดาวสำคัญ)
-    score = 0
-    comments = []
-    key_planets = ["Sun", "Moon", "Venus", "Mars"]
-    for p in key_planets:
-        if chart1[p]["sign"] == chart2[p]["sign"]:
-            score += 25
-            comments.append(f"{p}: อยู่ราศีเดียวกัน (เข้าใจกันง่าย)")
-        elif abs(chart1[p]["lon"] - chart2[p]["lon"]) < 30:
-            score += 15
-            comments.append(f"{p}: ดาวใกล้กัน (สัมพันธ์ดี)")
-        else:
-            comments.append(f"{p}: ดาวอยู่ต่างราศี (อาจต้องปรับตัว)")
-
-    return {
-        "person1": {"date": date1, "time": time1, "system": zodiac_system1},
-        "person2": {"date": date2, "time": time2, "system": zodiac_system2},
-        "score": min(score, 100),
-        "comments": comments
-    }
-    # ---- Thai date formatter (day-checked & BE formatting) ----
-DAYS_TH_FULL = ["จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์","อาทิตย์"]
-MONTHS_TH_LONG = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
-                  "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
-MONTHS_TH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.",
-                   "ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
-
 @app.get("/api/weekday-th")
 def get_weekday_th(date: str, style: Optional[str] = "short"):
-    """
-    คืนค่า 'วัน' + วันที่ไทยแบบสำเร็จรูป
-    - style=short  -> “วันศุกร์ที่ 8 พ.ค. 2569”
-    - style=long   -> “วันศุกร์ที่ 8 พฤษภาคม 2569”
-    """
     d, cal = parse_ddmmyyyy_th(date)
-    wd = DAYS_TH_FULL[d.weekday()]
+    wd = DAYS_TH[d.weekday()]
+    wd_compact = "พฤหัส" if wd == "พฤหัสบดี" else wd
     y_be = d.year + 543
     m_idx = d.month - 1
-    m_name_short = MONTHS_TH_SHORT[m_idx]
-    m_name_long = MONTHS_TH_LONG[m_idx]
-
-    thai_date_short = f"วัน{wd}ที่ {d.day} {m_name_short} {y_be}"
-    thai_date_long  = f"วัน{wd}ที่ {d.day} {m_name_long} {y_be}"
-
-    # เวอร์ชันย่อของ “พฤหัสบดี” = “พฤหัส” เผื่อคุณจะใช้ใน UI
-    wd_compact = "พฤหัส" if wd == "พฤหัสบดี" else wd
-
+    m_short = MONTHS_TH_SHORT[m_idx]
+    m_long = MONTHS_TH_LONG[m_idx]
+    thai_short = f"วัน{wd}ที่ {d.day} {m_short} {y_be}"
+    thai_long = f"วัน{wd}ที่ {d.day} {m_long} {y_be}"
     return {
         "input": {"date": date, "style": style},
-        "resolved_gregorian": d.isoformat(),
-        "calendar": cal,
         "weekday_full": wd,
         "weekday_compact": wd_compact,
-        "thai_date_short": thai_date_short,
-        "thai_date_long": thai_date_long,
-        "thai_date": thai_date_long if style == "long" else thai_date_short
+        "thai_date": thai_long if style == "long" else thai_short,
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal
     }
 
 
+# ------------------------------
+# ✅ /api/astro-chart
+# ------------------------------
+@app.get("/api/astro-chart")
+def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok",
+                    lat: float = 13.75, lon: float = 100.5):
+    d, cal = parse_ddmmyyyy_th(date)
+    tz = zoneinfo.ZoneInfo(timezone)
+    dt = datetime.combine(d, datetime.strptime(time, "%H:%M").time())
+    dt = dt.replace(tzinfo=tz)
+    utc_dt = dt.astimezone(zoneinfo.ZoneInfo("UTC"))
+
+    chart_data = get_chart(date, time, lat, lon)
+
+    return {
+        "input": {
+            "date": date, "time": time, "timezone": timezone,
+            "lat": lat, "lon": lon
+        },
+        "resolved_gregorian": d.isoformat(),
+        "utc_datetime": utc_dt.isoformat(),
+        "planets": chart_data
+    }
