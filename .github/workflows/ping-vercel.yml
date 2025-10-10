@@ -2,52 +2,34 @@ name: Keep Vercel API Awake 🚀
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
-  workflow_dispatch:
+    - cron: "*/15 * * * *"      # รันทุก 15 นาที (เวลา UTC)
+  workflow_dispatch:             # กดรันเองได้จากหน้า Actions
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Print current time (Thai timezone)
+      - name: Ping endpoints
         run: |
-          echo "🕐 เวลาปัจจุบัน (Asia/Bangkok):"
-          TZ=Asia/Bangkok date
+          set -e
 
-      - name: Ping Vercel endpoints
-        run: |
-          echo "🚀 กำลัง Ping API ของคุณ..."
-          
-          BASE_URL="https://astro-weekday-pro-auto.vercel.app"
-
-          ENDPOINTS=(
-            "/api/weekday?date=10/10/2568"
-            "/api/weekday-th?date=10/10/2568"
-            "/api/astro-chart?date=10/10/2568&time=12:00&lat=13.75&lon=100.5"
-            "/api/astro-match?date1=10/10/2568&date2=15/05/2568"
+          # รายการ URL ที่จะเรียก (เพิ่ม/ลดได้)
+          URLS=(
+            "https://astro-weekday-pro-auto.vercel.app/api/weekday?date=10/10/2568"
+            "https://astro-weekday-pro-auto.vercel.app/api/weekday-th?date=10/10/2568"
+            "https://astro-weekday-pro-auto.vercel.app/api/astro-chart?date=24/11/2514&time=11:00&lat=13.75&lon=100.5"
           )
 
-          FAIL_COUNT=0
-
-          for ENDPOINT in "${ENDPOINTS[@]}"; do
-            echo ""
-            echo "🌐 Checking: ${BASE_URL}${ENDPOINT}"
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}${ENDPOINT}")
-            
-            if [ "$STATUS" -eq 200 ]; then
-              echo "✅ Status: 200 OK"
-            else
-              echo "❌ Status: ${STATUS}"
-              ((FAIL_COUNT++))
+          for u in "${URLS[@]}"; do
+            echo "Pinging: $u"
+            # timeout 15s, retry 3 ครั้ง, แสดงสถานะ HTTP
+            code=$(curl -m 15 --retry 3 --retry-delay 5 -sS -o /dev/null -w "%{http_code}" "$u")
+            echo "Status: $code"
+            # ถ้าโค้ด >= 400 ให้ fail เพื่อเห็นใน log
+            if [ "$code" -ge 400 ]; then
+              echo "Error: $u -> $code"
+              exit 1
             fi
           done
 
-          echo ""
-          echo "📊 สรุป: มี ${FAIL_COUNT} endpoint ที่ตอบไม่ปกติ"
-
-          if [ "$FAIL_COUNT" -eq 0 ]; then
-            echo "🎉 All endpoints responded successfully!"
-          else
-            echo "⚠️ บาง endpoint ไม่ตอบกลับปกติ (ดูรายละเอียดข้างบน)"
-          fi
+          echo "All pings ok ✅"
