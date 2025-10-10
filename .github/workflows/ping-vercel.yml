@@ -2,7 +2,6 @@ name: Keep Vercel API Awake 🚀
 
 on:
   schedule:
-    # รันทุก 10 นาที
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
@@ -20,9 +19,8 @@ jobs:
         run: |
           echo "🚀 กำลัง Ping API ของคุณ..."
           
-          # URLs หลักทั้งหมดของโปรเจกต์
           BASE_URL="https://astro-weekday-pro-auto.vercel.app"
-          
+
           ENDPOINTS=(
             "/api/weekday?date=10/10/2568"
             "/api/weekday-th?date=10/10/2568"
@@ -30,7 +28,7 @@ jobs:
             "/api/astro-match?date1=10/10/2568&date2=15/05/2568"
           )
 
-          SUCCESS=true
+          FAIL_COUNT=0
 
           for ENDPOINT in "${ENDPOINTS[@]}"; do
             echo ""
@@ -41,12 +39,15 @@ jobs:
               echo "✅ Status: 200 OK"
             else
               echo "❌ Status: ${STATUS}"
-              SUCCESS=false
+              ((FAIL_COUNT++))
             fi
           done
 
           echo ""
-          if [ "$SUCCESS" = true ]; then
+          echo "📊 สรุป: มี ${FAIL_COUNT} endpoint ที่ตอบไม่ปกติ"
+
+          if [ "$FAIL_COUNT" -eq 0 ]; then
             echo "🎉 All endpoints responded successfully!"
           else
-            echo "⚠️ One or more endpoints failed
+            echo "⚠️ บาง endpoint ไม่ตอบกลับปกติ (ดูรายละเอียดข้างบน)"
+          fi
