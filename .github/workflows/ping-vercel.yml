@@ -1,0 +1,35 @@
+name: Keep Vercel API Awake 🚀
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"      # รันทุก 15 นาที (เวลา UTC)
+  workflow_dispatch:             # กดรันเองได้จากหน้า Actions
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoints
+        run: |
+          set -e
+
+          # รายการ URL ที่จะเรียก (เพิ่ม/ลดได้)
+          URLS=(
+            "https://astro-weekday-pro-auto.vercel.app/api/weekday?date=10/10/2568"
+            "https://astro-weekday-pro-auto.vercel.app/api/weekday-th?date=10/10/2568"
+            "https://astro-weekday-pro-auto.vercel.app/api/astro-chart?date=24/11/2514&time=11:00&lat=13.75&lon=100.5"
+          )
+
+          for u in "${URLS[@]}"; do
+            echo "Pinging: $u"
+            # timeout 15s, retry 3 ครั้ง, แสดงสถานะ HTTP
+            code=$(curl -m 15 --retry 3 --retry-delay 5 -sS -o /dev/null -w "%{http_code}" "$u")
+            echo "Status: $code"
+            # ถ้าโค้ด >= 400 ให้ fail เพื่อเห็นใน log
+            if [ "$code" -ge 400 ]; then
+              echo "Error: $u -> $code"
+              exit 1
+            fi
+          done
+
+          echo "All pings ok ✅"
