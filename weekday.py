@@ -168,4 +168,42 @@ def get_astro_match(
         "score": min(score, 100),
         "comments": comments
     }
+    # ---- Thai date formatter (day-checked & BE formatting) ----
+DAYS_TH_FULL = ["จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์","อาทิตย์"]
+MONTHS_TH_LONG = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+                  "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
+MONTHS_TH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.",
+                   "ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+
+@app.get("/api/weekday-th")
+def get_weekday_th(date: str, style: Optional[str] = "short"):
+    """
+    คืนค่า 'วัน' + วันที่ไทยแบบสำเร็จรูป
+    - style=short  -> “วันศุกร์ที่ 8 พ.ค. 2569”
+    - style=long   -> “วันศุกร์ที่ 8 พฤษภาคม 2569”
+    """
+    d, cal = parse_ddmmyyyy_th(date)
+    wd = DAYS_TH_FULL[d.weekday()]
+    y_be = d.year + 543
+    m_idx = d.month - 1
+    m_name_short = MONTHS_TH_SHORT[m_idx]
+    m_name_long = MONTHS_TH_LONG[m_idx]
+
+    thai_date_short = f"วัน{wd}ที่ {d.day} {m_name_short} {y_be}"
+    thai_date_long  = f"วัน{wd}ที่ {d.day} {m_name_long} {y_be}"
+
+    # เวอร์ชันย่อของ “พฤหัสบดี” = “พฤหัส” เผื่อคุณจะใช้ใน UI
+    wd_compact = "พฤหัส" if wd == "พฤหัสบดี" else wd
+
+    return {
+        "input": {"date": date, "style": style},
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal,
+        "weekday_full": wd,
+        "weekday_compact": wd_compact,
+        "thai_date_short": thai_date_short,
+        "thai_date_long": thai_date_long,
+        "thai_date": thai_date_long if style == "long" else thai_date_short
+    }
+
 
