@@ -72,4 +72,62 @@ paths:
                     type: object
                   planets:
                     type: object
+  /api/astro-transit:
+    get:
+      summary: ดูตำแหน่งดาวจร (Transit)
+      parameters:
+        - name: base_date
+          in: query
+          required: true
+          schema: {type: string, example: "24/11/2514"}
+        - name: base_time
+          in: query
+          schema: {type: string, example: "11:00"}
+        - name: target_date
+          in: query
+          schema: {type: string, example: "10/10/2568"}
+        - name: lat
+          in: query
+          schema: {type: number, example: 13.75}
+        - name: lon
+          in: query
+          schema: {type: number, example: 100.5}
+      responses:
+        "200":
+          description: ดาวจรและการวิเคราะห์
+  /api/astro-match:
+    get:
+      summary: วิเคราะห์ดวงคู่ (คู่รักหรือหุ้นส่วน)
+      parameters:
+        - name: date1
+          in: query
+          required: true
+          schema: {type: string, example: "24/11/2514"}
+        - name: time1
+          in: query
+          required: true
+          schema: {type: string, example: "11:00"}
+        - name: lat1
+          in: query
+          schema: {type: number, example: 13.75}
+        - name: lon1
+          in: query
+          schema: {type: number, example: 100.5}
+        - name: date2
+          in: query
+          required: true
+          schema: {type: string, example: "8/6/2514"}
+        - name: time2
+          in: query
+          required: true
+          schema: {type: string, example: "23:56"}
+        - name: lat2
+          in: query
+          schema: {type: number, example: 18.79}
+        - name: lon2
+          in: query
+          schema: {type: number, example: 98.98}
+      responses:
+        "200":
+          description: วิเคราะห์ความสัมพันธ์ดวงคู่
 
