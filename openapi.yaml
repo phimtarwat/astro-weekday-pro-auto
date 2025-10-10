@@ -1,1 +1,75 @@
+openapi: 3.1.0
+info:
+  title: Astro Weekday API
+  version: "2.0.0"
+  description: >
+    API สำหรับตรวจสอบวันจริง และคำนวณดวงดาวอัตโนมัติตามประเทศเกิด
+servers:
+  - url: https://astro-weekday-pro-auto.vercel.app
+paths:
+  /api/weekday:
+    get:
+      summary: ตรวจสอบวันจริงจากวันที่
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "24/11/2514"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  weekday:
+                    type: string
+  /api/astro-chart:
+    get:
+      summary: คำนวณดวงดาวอัตโนมัติ (เลือกระบบราศีเองตามประเทศเกิด)
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "24/11/2514"
+        - name: time
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "11:00"
+        - name: timezone
+          in: query
+          schema:
+            type: string
+            example: "Asia/Bangkok"
+        - name: lat
+          in: query
+          schema:
+            type: number
+            example: 13.75
+        - name: lon
+          in: query
+          schema:
+            type: number
+            example: 100.5
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  input:
+                    type: object
+                  planets:
+                    type: object
 
