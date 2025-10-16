@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API (Verified Astro Version)
-  version: "2.4.0"
+  title: Astro Weekday API (v2.5.0 – Smart Parser + Verified Astro)
+  version: "2.5.0"
   description: |
     API สำหรับตรวจสอบวันจริง, คำนวณพื้นดวง / ดาวจร / ดวงคู่
-    พร้อมระบบยืนยันความถูกต้องของวัน (Pre-Validation + Verified Layer)
-    รองรับทุก timezone และป้องกันความสับสน พ.ศ./ค.ศ.
+    รองรับวันที่ได้ทุก format (DD/MM/YYYY, YYYY-MM-DD, 27-10-68 ฯลฯ)
+    พร้อมระบบยืนยันความถูกต้องของวัน (Pre-Validation Layer + Verified Text)
+    ป้องกันความสับสนระหว่าง พ.ศ. และ ค.ศ. และรองรับ timezone ทั่วโลก
 
 servers:
   - url: https://astro-weekday-pro-auto.vercel.app
@@ -21,7 +22,8 @@ paths:
           required: true
           schema:
             type: string
-            example: "03/10/2568"
+            example: "2025-10-27"
+          description: วันที่รูปแบบใดก็ได้ (DD/MM/YYYY, YYYY-MM-DD, 27-10-68)
         - name: timezone
           in: query
           required: false
@@ -38,24 +40,29 @@ paths:
                 properties:
                   verified:
                     type: boolean
+                    example: true
                   verified_text:
                     type: string
+                    example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"
                   weekday_full:
                     type: string
+                    example: "จันทร์"
                   thai_date_long:
                     type: string
+                    example: "วันจันทร์ที่ 27 ตุลาคม 2568 (ค.ศ. 2025)"
 
   /api/weekday:
     get:
       operationId: getWeekday
-      summary: ตรวจสอบวันจริงจากวันที่ (พร้อมตรวจสอบความถูกต้อง)
+      summary: ตรวจสอบวันจริงจากวันที่ (รองรับทุกรูปแบบ + ตรวจสอบความถูกต้อง)
       parameters:
         - name: date
           in: query
           required: true
           schema:
             type: string
-            example: "03/10/2568"
+            example: "27/10/2568"
+          description: วันที่รูปแบบใดก็ได้ เช่น 27/10/2568, 2025-10-27, 27-10-68
         - name: timezone
           in: query
           required: false
@@ -70,14 +77,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  date: {type: string}
-                  timezone: {type: string}
-                  weekday: {type: string}
-                  calendar: {type: string}
-                  year_be: {type: integer}
-                  year_ce: {type: integer}
-                  verified: {type: boolean}
-                  verified_text: {type: string}
+                  date: {type: string, example: "27/10/2568"}
+                  timezone: {type: string, example: "Asia/Bangkok"}
+                  weekday: {type: string, example: "จันทร์"}
+                  calendar: {type: string, example: "BE"}
+                  year_be: {type: integer, example: 2568}
+                  year_ce: {type: integer, example: 2025}
+                  verified: {type: boolean, example: true}
+                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
 
   /api/weekday-th:
     get:
@@ -89,7 +96,8 @@ paths:
           required: true
           schema:
             type: string
-            example: "03/10/2568"
+            example: "27-10-68"
+          description: วันที่รูปแบบใดก็ได้ เช่น 27/10/2568, 27-10-68, 2025-10-27
         - name: style
           in: query
           required: false
@@ -111,10 +119,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  thai_date_long: {type: string}
-                  weekday_full: {type: string}
-                  verified: {type: boolean}
-                  verified_text: {type: string}
+                  thai_date_long: {type: string, example: "วันจันทร์ที่ 27 ตุลาคม 2568 (ค.ศ. 2025)"}
+                  weekday_full: {type: string, example: "จันทร์"}
+                  verified: {type: boolean, example: true}
+                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
 
   /api/astro-weekday:
     get:
@@ -126,7 +134,7 @@ paths:
           required: true
           schema:
             type: string
-            example: "24/11/2514"
+            example: "2025-10-27"
         - name: time
           in: query
           required: false
@@ -153,11 +161,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  weekday: {type: string}
-                  verified: {type: boolean}
-                  verified_text: {type: string}
-                  local_datetime: {type: string}
-                  utc_datetime: {type: string}
+                  weekday: {type: string, example: "จันทร์"}
+                  verified: {type: boolean, example: true}
+                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
+                  local_datetime: {type: string, example: "2025-10-27T11:00:00+07:00"}
+                  utc_datetime: {type: string, example: "2025-10-27T04:00:00+00:00"}
 
   /api/astro-chart:
     get:
@@ -202,9 +210,9 @@ paths:
               schema:
                 type: object
                 properties:
+                  verified: {type: boolean, example: true}
+                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันพุธที่ 24 พฤศจิกายน 2514 (ตรงตามปฏิทินจริง)"}
                   planets: {type: object}
-                  verified: {type: boolean}
-                  verified_text: {type: string}
 
   /api/astro-transit:
     get:
