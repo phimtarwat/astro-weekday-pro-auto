@@ -32,16 +32,21 @@ def parse_ddmmyyyy_th(s: str) -> tuple[date, str]:
     """รับวันที่ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.) -> date(C.E.), calendar"""
     s = s.strip()
     try:
-        day, month, year = [int(x) for x in s.split("/")]
+        # ✅ แปลงเป็นตัวเลขและตรวจจับปี พ.ศ. ก่อนสร้าง date
+        day, month, year = map(int, s.split("/"))
     except Exception:
         raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น DD/MM/YYYY)")
+
     calendar = "BE" if year > 2400 else "CE"
     if calendar == "BE":
-        year -= 543
+        year -= 543  # ✅ แปลง พ.ศ. → ค.ศ. ก่อนสร้าง date object
+
     try:
         d = date(year, month, day)
     except ValueError:
+        # ป้องกันกรณี 29 ก.พ. ที่ไม่ใช่ปี leap
         d = date(year, month, 28)
+
     return d, calendar
 
 
