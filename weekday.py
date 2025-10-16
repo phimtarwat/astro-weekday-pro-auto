@@ -10,7 +10,7 @@ import flatlib_lite as astro_chart
 # ✅ สำหรับระบบ Pro-Auto (ตรวจประเทศ/โซนเวลา)
 from geopy.geocoders import Nominatim
 
-app = FastAPI(title="Astro Weekday API", version="2.1.3")
+app = FastAPI(title="Astro Weekday API", version="2.2.0")
 
 # ------------------------------
 # คงที่สำหรับภาษาไทย
@@ -29,23 +29,35 @@ MONTHS_TH_SHORT = [
 # Utilities
 # ------------------------------
 def parse_ddmmyyyy_th(s: str) -> tuple[date, str]:
+    """รับวันที่ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.) -> date(C.E.), calendar"""
     s = s.strip()
     try:
-        d = datetime.strptime(s, "%d/%m/%Y").date()
-    except ValueError:
+        day, month, year = [int(x) for x in s.split("/")]
+    except Exception:
         raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น DD/MM/YYYY)")
-
-    calendar = "BE" if d.year >= 2400 else "CE"
+    calendar = "BE" if year > 2400 else "CE"
     if calendar == "BE":
-        y = d.year - 543
-        try:
-            d = d.replace(year=y)
-        except ValueError:
-            d = d.replace(year=y, day=28)
+        year -= 543
+    try:
+        d = date(year, month, day)
+    except ValueError:
+        d = date(year, month, 28)
     return d, calendar
 
-def format_thai_date(d: date, style: str = "short") -> dict:
-    wd_full = DAYS_TH[d.weekday()]
+
+def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optional[str] = "00:00") -> str:
+    """คืนชื่อวันตามเวลาท้องถิ่นใน timezone ที่กำหนด"""
+    try:
+        tz = zoneinfo.ZoneInfo(timezone)
+    except Exception:
+        tz = zoneinfo.ZoneInfo("Asia/Bangkok")
+    t = datetime.strptime(time_str or "00:00", "%H:%M").time()
+    dt_local = datetime.combine(d, t).replace(tzinfo=tz)
+    return DAYS_TH[dt_local.weekday()]
+
+
+def format_thai_date(d: date, style: str = "short", weekday_name: Optional[str] = None) -> dict:
+    wd_full = weekday_name or DAYS_TH[d.weekday()]
     wd_compact = "พฤหัส" if wd_full == "พฤหัสบดี" else wd_full
     y_be = d.year + 543
     m_idx = d.month - 1
@@ -61,6 +73,7 @@ def format_thai_date(d: date, style: str = "short") -> dict:
         "thai_date": thai_long if style == "long" else thai_short
     }
 
+
 def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
     tz_lower = (timezone or "").lower()
     if any(x in tz_lower for x in [
@@ -72,7 +85,10 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
         geolocator = Nominatim(user_agent="astro_weekday_api")
         loc = geolocator.reverse((lat, lon), language="en", timeout=10)
         country = (loc.raw.get("address", {}).get("country", "") or "").lower()
-        sidereal_countries = {"thailand", "laos", "myanmar", "burma", "cambodia", "india", "sri lanka", "nepal", "bangladesh"}
+        sidereal_countries = {
+            "thailand","laos","myanmar","burma","cambodia",
+            "india","sri lanka","nepal","bangladesh"
+        }
         return "sidereal" if any(c in country for c in sidereal_countries) else "tropical"
     except Exception:
         return "sidereal" if "asia/" in tz_lower else "tropical"
@@ -82,7 +98,7 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
 # ------------------------------
 @app.get("/")
 def root():
-    return {"message": "Astro Weekday API (Full Production) 🚀"}
+    return {"message": "Astro Weekday API (Timezone Aware) 🚀"}
 
 @app.get("/health")
 def health():
@@ -92,37 +108,40 @@ def health():
 # /api/weekday
 # ------------------------------
 @app.get("/api/weekday")
-def get_weekday(date: str):
+def get_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
     d, cal = parse_ddmmyyyy_th(date)
-    # ✅ ใช้เวลาท้องถิ่นไทยเสมอ เพื่อกันเหลื่อมวันจาก UTC
-tz = zoneinfo.ZoneInfo("Asia/Bangkok")
-dt_local = datetime.combine(d, datetime.min.time()).replace(tzinfo=tz)
-weekday = DAYS_TH[dt_local.weekday()]
-
-    return {"date": date, "weekday": weekday, "resolved_gregorian": d.isoformat(), "calendar": cal}
+    weekday = get_local_weekday(d, timezone)
+    return {
+        "date": date,
+        "timezone": timezone,
+        "weekday": weekday,
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal
+    }
 
 # ------------------------------
 # /api/weekday-th
 # ------------------------------
 @app.get("/api/weekday-th")
-def get_weekday_th(date: str, style: Optional[str] = "short"):
+def get_weekday_th(date: str, style: Optional[str] = "short", timezone: Optional[str] = "Asia/Bangkok"):
     d, cal = parse_ddmmyyyy_th(date)
-    tz = zoneinfo.ZoneInfo("Asia/Bangkok")
-    dt_local = datetime.combine(d, datetime.min.time()).replace(tzinfo=tz)
-weekday_full = DAYS_TH[dt_local.weekday()]  # ✅ วันจริงตามเวลาไทย
-weekday_compact = "พฤหัส" if weekday_full == "พฤหัสบดี" else weekday_full
-
-payload = format_thai_date(dt_local.date(), style or "short")
-payload["weekday_full"] = weekday_full
-payload["weekday_compact"] = weekday_compact
-
-    return {"input": {"date": date, "style": style or "short"}, "resolved_gregorian": d.isoformat(), "calendar": cal, **payload}
+    weekday_full = get_local_weekday(d, timezone)
+    payload = format_thai_date(d, style or "short", weekday_full)
+    return {
+        "input": {"date": date, "style": style or "short", "timezone": timezone},
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal,
+        **payload
+    }
 
 # ------------------------------
 # /api/astro-weekday
 # ------------------------------
 @app.get("/api/astro-weekday")
-def get_astro_weekday(date: str, time: Optional[str] = None, timezone: Optional[str] = "Asia/Bangkok", place: Optional[str] = None):
+def get_astro_weekday(date: str,
+                      time: Optional[str] = None,
+                      timezone: Optional[str] = "Asia/Bangkok",
+                      place: Optional[str] = None):
     d, cal = parse_ddmmyyyy_th(date)
     try:
         t = datetime.strptime(time or "00:00", "%H:%M").time()
@@ -131,11 +150,20 @@ def get_astro_weekday(date: str, time: Optional[str] = None, timezone: Optional[
     try:
         tz = zoneinfo.ZoneInfo(timezone)
     except Exception:
-        raise HTTPException(status_code=400, detail=f"ไม่รู้จัก timezone: {timezone}")
+        tz = zoneinfo.ZoneInfo("Asia/Bangkok")
     dt_local = datetime.combine(d, t).replace(tzinfo=tz)
     dt_utc = dt_local.astimezone(zoneinfo.ZoneInfo("UTC"))
     weekday_th = DAYS_TH[dt_local.weekday()]
-    result = {"date": date, "time": time or "00:00", "timezone": timezone, "weekday": weekday_th, "resolved_gregorian": d.isoformat(), "calendar": cal, "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat()}
+    result = {
+        "date": date,
+        "time": time or "00:00",
+        "timezone": timezone,
+        "weekday": weekday_th,
+        "resolved_gregorian": d.isoformat(),
+        "calendar": cal,
+        "local_datetime": dt_local.isoformat(),
+        "utc_datetime": dt_utc.isoformat(),
+    }
     if place:
         result["place"] = place
     return result
@@ -144,20 +172,33 @@ def get_astro_weekday(date: str, time: Optional[str] = None, timezone: Optional[
 # /api/astro-chart
 # ------------------------------
 @app.get("/api/astro-chart")
-def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok", lat: float = 13.75, lon: float = 100.50):
+def get_astro_chart(date: str, time: str,
+                    timezone: str = "Asia/Bangkok",
+                    lat: float = 13.75, lon: float = 100.50):
     d, cal = parse_ddmmyyyy_th(date)
     zodiac_system = detect_zodiac_system(lat, lon, timezone)
     planets = astro_chart.compute_chart(d, time, timezone, lat, lon, zodiac_system)
     tz = zoneinfo.ZoneInfo(timezone)
     dt_local = datetime.combine(d, datetime.strptime(time, "%H:%M").time()).replace(tzinfo=tz)
     dt_utc = dt_local.astimezone(zoneinfo.ZoneInfo("UTC"))
-    return {"input": {"date": date, "time": time, "timezone": timezone, "lat": lat, "lon": lon, "auto_system": zodiac_system}, "resolved_gregorian": d.isoformat(), "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat(), "planets": planets}
+    return {
+        "input": {"date": date, "time": time, "timezone": timezone,
+                  "lat": lat, "lon": lon, "auto_system": zodiac_system},
+        "resolved_gregorian": d.isoformat(),
+        "local_datetime": dt_local.isoformat(),
+        "utc_datetime": dt_utc.isoformat(),
+        "planets": planets
+    }
 
 # ------------------------------
 # /api/astro-transit
 # ------------------------------
 @app.get("/api/astro-transit")
-def get_astro_transit(base_date: str, base_time: str = "12:00", target_date: Optional[str] = None, lat: float = 13.75, lon: float = 100.5, timezone: str = "Asia/Bangkok"):
+def get_astro_transit(base_date: str,
+                      base_time: str = "12:00",
+                      target_date: Optional[str] = None,
+                      lat: float = 13.75, lon: float = 100.5,
+                      timezone: str = "Asia/Bangkok"):
     base_d, _ = parse_ddmmyyyy_th(base_date)
     target_d, _ = parse_ddmmyyyy_th(target_date) if target_date else (datetime.now(zoneinfo.ZoneInfo(timezone)).date(), None)
     zodiac_system = detect_zodiac_system(lat, lon, timezone)
@@ -172,13 +213,22 @@ def get_astro_transit(base_date: str, base_time: str = "12:00", target_date: Opt
                 interactions.append(f"{p}: ดาวจรทับดาวเดิม (แรง)")
             elif 170 <= diff <= 190:
                 interactions.append(f"{p}: ดาวจรเล็งดาวเดิม (กดดัน)")
-    return {"system": zodiac_system, "natal_date": base_date, "target_date": target_d.strftime("%d/%m/%Y"), "natal": natal, "transit": transit, "analysis": interactions}
+    return {
+        "system": zodiac_system,
+        "natal_date": base_date,
+        "target_date": target_d.strftime("%d/%m/%Y"),
+        "natal": natal,
+        "transit": transit,
+        "analysis": interactions
+    }
 
 # ------------------------------
 # /api/astro-match
 # ------------------------------
 @app.get("/api/astro-match")
-def get_astro_match(date1: str, time1: str, lat1: float, lon1: float, date2: str, time2: str, lat2: float, lon2: float, timezone: str = "Asia/Bangkok"):
+def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
+                    date2: str, time2: str, lat2: float, lon2: float,
+                    timezone: str = "Asia/Bangkok"):
     d1, _ = parse_ddmmyyyy_th(date1)
     d2, _ = parse_ddmmyyyy_th(date2)
     sys1 = detect_zodiac_system(lat1, lon1, timezone)
@@ -196,7 +246,12 @@ def get_astro_match(date1: str, time1: str, lat1: float, lon1: float, date2: str
             comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
         else:
             comments.append(f"{p}: ต่างราศี (ต้องปรับตัว)")
-    return {"person1": {"date": date1, "time": time1, "system": sys1}, "person2": {"date": date2, "time": time2, "system": sys2}, "score": min(score, 100), "comments": comments}
+    return {
+        "person1": {"date": date1, "time": time1, "system": sys1},
+        "person2": {"date": date2, "time": time2, "system": sys2},
+        "score": min(score, 100),
+        "comments": comments
+    }
 
 # ------------------------------
 # /openapi.yaml
