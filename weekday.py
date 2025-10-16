@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from typing import Optional
+import re
 import zoneinfo
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -10,7 +11,7 @@ import flatlib_lite as astro_chart
 # ✅ สำหรับระบบ Pro-Auto (ตรวจประเทศ/โซนเวลา)
 from geopy.geocoders import Nominatim
 
-app = FastAPI(title="Astro Weekday API", version="2.4.0")
+app = FastAPI(title="Astro Weekday API", version="2.5.0")
 
 # ------------------------------
 # คงที่สำหรับภาษาไทย
@@ -26,18 +27,37 @@ MONTHS_TH_SHORT = [
 ]
 
 # ------------------------------
-# Utilities
+# Smart Date Parser (รองรับทุกรูปแบบ)
 # ------------------------------
 def parse_ddmmyyyy_th(s: str) -> dict:
-    """รับวันที่ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.) -> คืน date object + ปี พ.ศ./ค.ศ. ทั้งคู่"""
+    """อัจฉริยะ: รองรับวันที่ทุก format (DD/MM/YYYY, YYYY-MM-DD, 27-10-68, ฯลฯ)"""
     s = s.strip()
+    if not s:
+        raise HTTPException(status_code=400, detail="กรุณาระบุวันที่")
+
+    # ✅ แปลงตัวคั่นทั้งหมดให้เป็น '/'
+    s = re.sub(r"[-. ]", "/", s)
+
+    # ✅ แยกส่วนตัวเลข
+    parts = [p for p in s.split("/") if p]
+    if len(parts) != 3:
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องมี 3 ส่วน เช่น 27/10/2568)")
+
     try:
-        day, month, year = map(int, s.split("/"))
+        # ตรวจว่ารูปแบบเป็น YYYY/MM/DD หรือ DD/MM/YYYY
+        if len(parts[0]) == 4:
+            year, month, day = map(int, parts)
+        else:
+            day, month, year = map(int, parts)
     except Exception:
-        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น DD/MM/YYYY)")
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ตัวเลขไม่สมบูรณ์)")
+
+    # ✅ รองรับปี 2 หลัก → เติม พ.ศ. โดยอัตโนมัติ
+    if year < 100:
+        year += 2500  # เช่น 68 → 2568
 
     if year < 1800 or year > 2700:
-        raise HTTPException(status_code=400, detail="ปีไม่สมเหตุสมผล (ตรวจสอบรูปแบบ พ.ศ. / ค.ศ.)")
+        raise HTTPException(status_code=400, detail="ปีไม่สมเหตุสมผล (ตรวจสอบรูปแบบ พ.ศ./ค.ศ.)")
 
     is_be = year > 2400
     if is_be:
@@ -59,7 +79,9 @@ def parse_ddmmyyyy_th(s: str) -> dict:
         "year_be": year_be
     }
 
-
+# ------------------------------
+# Utilities
+# ------------------------------
 def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optional[str] = "00:00") -> str:
     try:
         tz = zoneinfo.ZoneInfo(timezone)
@@ -111,12 +133,10 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
     except Exception:
         return "sidereal" if "asia/" in tz_lower else "tropical"
 
-
 # ------------------------------
-# ✅ Pre-validation Layer: ตรวจสอบวันจริงก่อนใช้
+# ✅ Pre-validation Layer
 # ------------------------------
 def validate_real_weekday(date: str, timezone: str = "Asia/Bangkok") -> dict:
-    """ตรวจสอบวันจริงก่อนใช้ในคำทำนาย"""
     parsed = parse_ddmmyyyy_th(date)
     d = parsed["date_obj"]
     weekday = get_local_weekday(d, timezone)
@@ -137,18 +157,17 @@ def validate_real_weekday(date: str, timezone: str = "Asia/Bangkok") -> dict:
 # ------------------------------
 @app.get("/")
 def root():
-    return {"message": "Astro Weekday API (Verified Astro Version) 🚀"}
+    return {"message": "Astro Weekday API (v2.5.0 – Smart Parser + Verified Astro) 🚀"}
 
 @app.get("/health")
 def health():
     return {"ok": True}
 
 # ------------------------------
-# /api/validate-weekday (ใหม่)
+# /api/validate-weekday
 # ------------------------------
 @app.get("/api/validate-weekday")
 def validate_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
-    """ตรวจสอบวันจริงก่อนนำไปใช้ทำนาย"""
     return validate_real_weekday(date, timezone)
 
 # ------------------------------
@@ -274,4 +293,62 @@ def get_astro_transit(base_date: str,
             diff = diff if diff <= 180 else 360 - diff
             if diff <= 10:
                 interactions.append(f"{p}: ดาวจรทับดาวเดิม (แรง)")
-            elif
+            elif 170 <= diff <= 190:
+                interactions.append(f"{p}: ดาวจรเล็งดาวเดิม (กดดัน)")
+    return {
+        "system": zodiac_system,
+        "natal_date": base_date,
+        "target_date": target_d.strftime("%d/%m/%Y"),
+        "natal": natal,
+        "transit": transit,
+        "analysis": interactions
+    }
+
+# ------------------------------
+# /api/astro-match
+# ------------------------------
+@app.get("/api/astro-match")
+def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
+                    date2: str, time2: str, lat2: float, lon2: float,
+                    timezone: str = "Asia/Bangkok"):
+    d1 = parse_ddmmyyyy_th(date1)["date_obj"]
+    d2 = parse_ddmmyyyy_th(date2)["date_obj"]
+    sys1 = detect_zodiac_system(lat1, lon1, timezone)
+    sys2 = detect_zodiac_system(lat2, lon2, timezone)
+    c1 = astro_chart.compute_chart(d1, time1, timezone, lat1, lon1, sys1)
+    c2 = astro_chart.compute_chart(d2, time2, timezone, lat2, lon2, sys2)
+    score = 0
+    comments = []
+    for p in ["Sun", "Moon", "Venus", "Mars"]:
+        if c1[p]["sign"] == c2[p]["sign"]:
+            score += 25
+            comments.append(f"{p}: อยู่ราศีเดียวกัน (เข้าใจกันง่าย)")
+        elif abs(c1[p]["lon"] - c2[p]["lon"]) < 30:
+            score += 15
+            comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
+        else:
+            comments.append(f"{p}: ต่างราศี (ต้องปรับตัว)")
+    return {
+        "person1": {"date": date1, "time": time1, "system": sys1},
+        "person2": {"date": date2, "time": time2, "system": sys2},
+        "score": min(score, 100),
+        "comments": comments
+    }
+
+# ------------------------------
+# /openapi.yaml
+# ------------------------------
+@app.get("/openapi.yaml")
+def get_openapi_yaml():
+    import os
+    file_path = os.path.join(os.path.dirname(__file__), "openapi.yaml")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="openapi.yaml not found")
+    return FileResponse(file_path, media_type="text/yaml")
+
+# ------------------------------
+# run local
+# ------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("weekday:app", host="0.0.0.0", port=8000, reload=True)
