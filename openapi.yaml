@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API (Pro Auto)
-  version: "2.1.0"
+  title: Astro Weekday API (Timezone Aware)
+  version: "2.2.0"
   description: |
     API สำหรับตรวจสอบวันจริง และคำนวณพื้นดวง / ดาวจร / ดวงคู่
     รองรับทั้งระบบราศีสากล (Tropical) และนิรายนะ (Sidereal)
@@ -14,7 +14,7 @@ paths:
   /api/weekday:
     get:
       operationId: getWeekday
-      summary: ตรวจสอบวันจริงจากวันที่
+      summary: ตรวจสอบวันจริงจากวันที่ (รองรับ timezone)
       parameters:
         - name: date
           in: query
@@ -23,6 +23,13 @@ paths:
             type: string
             example: "10/09/2568"
           description: วันที่รูปแบบ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.)
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
+          description: timezone ของพื้นที่ เช่น Asia/Bangkok, America/New_York
       responses:
         "200":
           description: Successful Response
@@ -30,7 +37,7 @@ paths:
   /api/weekday-th:
     get:
       operationId: getWeekdayThai
-      summary: แปลงวันที่ไทยและแสดงวันจริง
+      summary: แปลงวันที่ไทยและแสดงวันจริง (รองรับ timezone)
       parameters:
         - name: date
           in: query
@@ -45,6 +52,13 @@ paths:
             type: string
             enum: ["short", "long"]
             default: "short"
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "Asia/Bangkok"
+          description: timezone ของพื้นที่ (ค่าเริ่มต้นคือ Asia/Bangkok)
       responses:
         "200":
           description: Successful Response
