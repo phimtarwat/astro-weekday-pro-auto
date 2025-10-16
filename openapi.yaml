@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API (Timezone Aware)
-  version: "2.2.0"
+  title: Astro Weekday API (Zero-Error Calendar Safe)
+  version: "2.3.0"
   description: |
     API สำหรับตรวจสอบวันจริง และคำนวณพื้นดวง / ดาวจร / ดวงคู่
     รองรับทั้งระบบราศีสากล (Tropical) และนิรายนะ (Sidereal)
-    โดยเลือกอัตโนมัติจากประเทศหรือ timezone
+    พร้อมป้องกันความสับสนระหว่าง พ.ศ. และ ค.ศ. (Zero-Error Calendar)
 
 servers:
   - url: https://astro-weekday-pro-auto.vercel.app
@@ -14,14 +14,14 @@ paths:
   /api/weekday:
     get:
       operationId: getWeekday
-      summary: ตรวจสอบวันจริงจากวันที่ (รองรับ timezone)
+      summary: ตรวจสอบวันจริงจากวันที่ (รองรับ timezone และศักราช)
       parameters:
         - name: date
           in: query
           required: true
           schema:
             type: string
-            example: "10/09/2568"
+            example: "03/10/2568"
           description: วันที่รูปแบบ DD/MM/YYYY (พ.ศ. หรือ ค.ศ.)
         - name: timezone
           in: query
@@ -37,14 +37,14 @@ paths:
   /api/weekday-th:
     get:
       operationId: getWeekdayThai
-      summary: แปลงวันที่ไทยและแสดงวันจริง (รองรับ timezone)
+      summary: แปลงวันที่ไทยและแสดงวันจริง (พร้อมปี พ.ศ./ค.ศ.)
       parameters:
         - name: date
           in: query
           required: true
           schema:
             type: string
-            example: "10/09/2568"
+            example: "03/10/2568"
         - name: style
           in: query
           required: false
