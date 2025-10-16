@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API (v2.5.0 – Smart Parser + Verified Astro)
-  version: "2.5.0"
+  title: Astro Weekday API (v2.6.0 – Auto Validation Middleware)
+  version: "2.6.0"
   description: |
     API สำหรับตรวจสอบวันจริง, คำนวณพื้นดวง / ดาวจร / ดวงคู่
-    รองรับวันที่ได้ทุก format (DD/MM/YYYY, YYYY-MM-DD, 27-10-68 ฯลฯ)
-    พร้อมระบบยืนยันความถูกต้องของวัน (Pre-Validation Layer + Verified Text)
+    พร้อมระบบ Auto Validation ที่ตรวจสอบวันจริงอัตโนมัติทุกครั้ง
+    รองรับทุก format วันที่ (DD/MM/YYYY, YYYY-MM-DD, 27-10-68 ฯลฯ)
     ป้องกันความสับสนระหว่าง พ.ศ. และ ค.ศ. และรองรับ timezone ทั่วโลก
 
 servers:
@@ -54,7 +54,7 @@ paths:
   /api/weekday:
     get:
       operationId: getWeekday
-      summary: ตรวจสอบวันจริงจากวันที่ (รองรับทุกรูปแบบ + ตรวจสอบความถูกต้อง)
+      summary: ตรวจสอบวันจริงจากวันที่ (รองรับทุก format + Auto Validation)
       parameters:
         - name: date
           in: query
@@ -62,7 +62,6 @@ paths:
           schema:
             type: string
             example: "27/10/2568"
-          description: วันที่รูปแบบใดก็ได้ เช่น 27/10/2568, 2025-10-27, 27-10-68
         - name: timezone
           in: query
           required: false
@@ -89,7 +88,7 @@ paths:
   /api/weekday-th:
     get:
       operationId: getWeekdayThai
-      summary: แปลงวันที่ไทยและแสดงวันจริง (พร้อมตรายืนยันความถูกต้อง)
+      summary: แปลงวันที่ไทยและแสดงวันจริง (พร้อม Auto Validation)
       parameters:
         - name: date
           in: query
@@ -97,7 +96,6 @@ paths:
           schema:
             type: string
             example: "27-10-68"
-          description: วันที่รูปแบบใดก็ได้ เช่น 27/10/2568, 27-10-68, 2025-10-27
         - name: style
           in: query
           required: false
@@ -127,7 +125,7 @@ paths:
   /api/astro-weekday:
     get:
       operationId: getAstroWeekday
-      summary: ตรวจสอบวันจริง + เวลา + timezone + สถานที่เกิด (พร้อมยืนยันวันจริง)
+      summary: ตรวจสอบวันจริง + เวลา + timezone + สถานที่เกิด (พร้อม Auto Validation)
       parameters:
         - name: date
           in: query
@@ -170,7 +168,7 @@ paths:
   /api/astro-chart:
     get:
       operationId: getAstroChart
-      summary: คำนวณพื้นดวง (เลือก sidereal/tropical อัตโนมัติ และตรวจวันจริง)
+      summary: คำนวณพื้นดวง (เลือก sidereal/tropical อัตโนมัติ + Auto Validation)
       parameters:
         - name: date
           in: query
