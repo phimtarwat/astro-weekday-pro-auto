@@ -94,7 +94,11 @@ def health():
 @app.get("/api/weekday")
 def get_weekday(date: str):
     d, cal = parse_ddmmyyyy_th(date)
-    weekday = DAYS_TH[d.weekday()]
+    # ✅ ใช้เวลาท้องถิ่นไทยเสมอ เพื่อกันเหลื่อมวันจาก UTC
+tz = zoneinfo.ZoneInfo("Asia/Bangkok")
+dt_local = datetime.combine(d, datetime.min.time()).replace(tzinfo=tz)
+weekday = DAYS_TH[dt_local.weekday()]
+
     return {"date": date, "weekday": weekday, "resolved_gregorian": d.isoformat(), "calendar": cal}
 
 # ------------------------------
@@ -105,7 +109,13 @@ def get_weekday_th(date: str, style: Optional[str] = "short"):
     d, cal = parse_ddmmyyyy_th(date)
     tz = zoneinfo.ZoneInfo("Asia/Bangkok")
     dt_local = datetime.combine(d, datetime.min.time()).replace(tzinfo=tz)
-    payload = format_thai_date(dt_local.date(), style or "short")
+weekday_full = DAYS_TH[dt_local.weekday()]  # ✅ วันจริงตามเวลาไทย
+weekday_compact = "พฤหัส" if weekday_full == "พฤหัสบดี" else weekday_full
+
+payload = format_thai_date(dt_local.date(), style or "short")
+payload["weekday_full"] = weekday_full
+payload["weekday_compact"] = weekday_compact
+
     return {"input": {"date": date, "style": style or "short"}, "resolved_gregorian": d.isoformat(), "calendar": cal, **payload}
 
 # ------------------------------
