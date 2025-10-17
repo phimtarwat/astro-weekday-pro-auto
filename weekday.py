@@ -12,7 +12,7 @@ import flatlib_lite as astro_chart
 # ✅ สำหรับระบบตรวจประเทศ/โซนเวลา
 from geopy.geocoders import Nominatim
 
-app = FastAPI(title="Astro Weekday API", version="2.6.2 (Full Production)")
+app = FastAPI(title="Astro Weekday API", version="2.6.4 (Full Dual Calendar + Fallback)")
 
 # ------------------------------
 # ค่าคงที่ภาษาไทย
@@ -28,56 +28,82 @@ MONTHS_TH_SHORT = [
 ]
 
 # ------------------------------
-# ✅ ตรวจสอบวันจริงผ่าน API กลาง (External Verify)
+# ✅ ตรวจสอบวันจริงผ่าน API กลาง (มี Fallback ภายใน)
 # ------------------------------
 def ensure_verified_date(date_str: str, timezone: str = "Asia/Bangkok") -> dict:
+    """พยายามยืนยันวันจริงจาก API กลางก่อน
+    ถ้าไม่ได้ (timeout/ไม่รองรับ พ.ศ.) จะใช้ระบบ local verify สำรองที่รองรับทั้ง พ.ศ./ค.ศ.
+    """
     try:
         url = "https://astro-weekday-pro-auto.vercel.app/api/validate-weekday"
         resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=5)
         data = resp.json()
-        if not data.get("verified"):
-            raise ValueError("verify_fail")
-        return data
+        if data.get("verified", False):
+            return data
+        else:
+            raise ValueError("external_verify_fail")
     except Exception:
-        return {"verified": False, "verified_text": "⚠️ ไม่สามารถยืนยันวันได้"}
+        # Local fallback (รองรับ พ.ศ./ค.ศ.)
+        try:
+            p = parse_ddmmyyyy_th(date_str)
+            d = p["date_obj"]
+            weekday = get_local_weekday(d, timezone)
+            thai_long = f"วัน{weekday}ที่ {d.day} {MONTHS_TH_LONG[d.month-1]} {p['year_be']} (ค.ศ. {p['year_ce']})"
+            return {
+                "verified": True,
+                "weekday_full": weekday,
+                "thai_date_long": thai_long,
+                "verified_text": "✅ ตรวจวันสำเร็จ (Local Fallback)"
+            }
+        except Exception:
+            return {"verified": False, "verified_text": "⚠️ ไม่สามารถยืนยันวันได้"}
 
 # ------------------------------
-# Smart Date Parser (รองรับทุก format)
+# Smart Date Parser (รองรับทุก format, ทั้ง พ.ศ. / ค.ศ.)
 # ------------------------------
 def parse_ddmmyyyy_th(s: str) -> dict:
-    s = s.strip()
+    s = (s or "").strip()
     if not s:
         raise HTTPException(status_code=400, detail="กรุณาระบุวันที่")
+    # ปรับตัวคั่นให้เป็น '/'
     s = re.sub(r"[-. ]", "/", s)
     parts = [p for p in s.split("/") if p]
     if len(parts) != 3:
-        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (เช่น 27/10/2568)")
-
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (เช่น 27/10/2568 หรือ 2000-10-27)")
     try:
-        if len(parts[0]) == 4:
+        if len(parts[0]) == 4:  # YYYY/MM/DD
             year, month, day = map(int, parts)
-        else:
+        else:                   # DD/MM/YYYY or DD/MM/YY
             day, month, year = map(int, parts)
     except Exception:
         raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ตัวเลขไม่สมบูรณ์)")
 
+    # รองรับทั้ง พ.ศ. / ค.ศ. / ปี 2 หลัก
     if year < 100:
+        # สมมติเป็น พ.ศ. 2 หลัก (เช่น 68 -> 2568)
         year += 2500
-    if year < 1800 or year > 2700:
+
+    # ช่วงปีที่ยอมรับ: ค.ศ. 1800–2100 หรือ พ.ศ. 2400–2700
+    if 1800 <= year <= 2100:
+        is_be = False
+    elif 2400 <= year <= 2700:
+        is_be = True
+    else:
         raise HTTPException(status_code=400, detail="ปีไม่สมเหตุสมผล (ตรวจสอบ พ.ศ./ค.ศ.)")
 
-    is_be = year > 2400
     year_ce = year - 543 if is_be else year
     year_be = year if is_be else year + 543
 
+    # สร้างวันที่ ปรับปลายเดือนให้ไม่ error
     try:
         d = date(year_ce, month, day)
     except ValueError:
         d = date(year_ce, month, 28)
+
     return {"date_obj": d, "calendar": "BE" if is_be else "CE", "year_ce": year_ce, "year_be": year_be}
 
 # ------------------------------
-# Utility Functions
+# Utilities
 # ------------------------------
 def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optional[str] = "00:00") -> str:
     try:
@@ -125,12 +151,12 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
         return "sidereal" if "asia/" in tz_lower else "tropical"
 
 # ------------------------------
-# Middleware ตรวจวันจริงก่อน response
+# Middleware: ตรวจวันจริงก่อน response ทุก endpoint (กัน loop)
 # ------------------------------
 @app.middleware("http")
 async def auto_validate_middleware(request: Request, call_next):
     if request.method == "GET":
-        # 🔹 ป้องกัน recursive validation ของ endpoint ตัวเอง
+        # กัน recursive validation ของ endpoint ตัวเอง
         if request.url.path == "/api/validate-weekday":
             return await call_next(request)
         q = dict(request.query_params)
@@ -139,14 +165,15 @@ async def auto_validate_middleware(request: Request, call_next):
             validated = ensure_verified_date(q["date"], tz)
             request.state.validated_date = validated
     response = await call_next(request)
+    # แทรก verified_text เข้า response JSON (ถ้าเป็น JSON)
     try:
         body = b"".join([chunk async for chunk in response.body_iterator])
         import json
         data = json.loads(body)
         if hasattr(request.state, "validated_date") and isinstance(data, dict):
             data.update(request.state.validated_date)
-        if not data.get("verified", False):
-            data["verified_text"] = "⚠️ ไม่สามารถยืนยันวันได้"
+        if isinstance(data, dict) and not data.get("verified", False):
+            data["verified_text"] = data.get("verified_text", "⚠️ ไม่สามารถยืนยันวันได้")
         return JSONResponse(content=data, status_code=response.status_code)
     except Exception:
         return response
@@ -156,7 +183,7 @@ async def auto_validate_middleware(request: Request, call_next):
 # ------------------------------
 @app.get("/")
 def root():
-    return {"message": "Astro Weekday API (v2.6.2 – Full Production) 🚀"}
+    return {"message": "Astro Weekday API (v2.6.4 – Full Dual Calendar + Fallback) 🚀"}
 
 @app.get("/health")
 def health():
