@@ -32,8 +32,8 @@ MONTHS_TH_SHORT = [
 # ------------------------------
 def ensure_verified_date(date_str: str, timezone: str = "Asia/Bangkok") -> dict:
     try:
-        url = "https://astro-weekday-pro-auto.vercel.app/api/validate-weekday"
-        resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=5)
+        url = "http://localhost:8000/api/validate-weekday"
+        resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=3)
         data = resp.json()
         if not data.get("verified"):
             raise ValueError("verify_fail")
@@ -130,11 +130,15 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
 @app.middleware("http")
 async def auto_validate_middleware(request: Request, call_next):
     if request.method == "GET":
+        # 🔹 ป้องกันตรวจซ้ำ endpoint ตัวเอง
+        if request.url.path == "/api/validate-weekday":
+            return await call_next(request)
         q = dict(request.query_params)
         if "date" in q:
             tz = q.get("timezone", "Asia/Bangkok")
             validated = ensure_verified_date(q["date"], tz)
             request.state.validated_date = validated
+
     response = await call_next(request)
     try:
         body = b"".join([chunk async for chunk in response.body_iterator])
