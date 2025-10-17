@@ -9,10 +9,10 @@ from fastapi.responses import FileResponse, JSONResponse
 # ✅ โหราศาสตร์แบบ lite (pure Python)
 import flatlib_lite as astro_chart
 
-# ✅ สำหรับระบบ Pro-Auto (ตรวจประเทศ/โซนเวลา)
+# ✅ สำหรับระบบตรวจประเทศ/โซนเวลา
 from geopy.geocoders import Nominatim
 
-app = FastAPI(title="Astro Weekday API", version="2.6.1")
+app = FastAPI(title="Astro Weekday API", version="2.6.2 (Full Production)")
 
 # ------------------------------
 # ค่าคงที่ภาษาไทย
@@ -28,12 +28,12 @@ MONTHS_TH_SHORT = [
 ]
 
 # ------------------------------
-# ✅ ตรวจสอบวันจริงผ่าน API กลาง (Pre-Validation)
+# ✅ ตรวจสอบวันจริงผ่าน API กลาง (External Verify)
 # ------------------------------
 def ensure_verified_date(date_str: str, timezone: str = "Asia/Bangkok") -> dict:
     try:
-        url = "http://localhost:8000/api/validate-weekday"
-        resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=3)
+        url = "https://astro-weekday-pro-auto.vercel.app/api/validate-weekday"
+        resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=5)
         data = resp.json()
         if not data.get("verified"):
             raise ValueError("verify_fail")
@@ -48,11 +48,10 @@ def parse_ddmmyyyy_th(s: str) -> dict:
     s = s.strip()
     if not s:
         raise HTTPException(status_code=400, detail="กรุณาระบุวันที่")
-
     s = re.sub(r"[-. ]", "/", s)
     parts = [p for p in s.split("/") if p]
     if len(parts) != 3:
-        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องมี 3 ส่วน เช่น 27/10/2568)")
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (เช่น 27/10/2568)")
 
     try:
         if len(parts[0]) == 4:
@@ -70,6 +69,7 @@ def parse_ddmmyyyy_th(s: str) -> dict:
     is_be = year > 2400
     year_ce = year - 543 if is_be else year
     year_be = year if is_be else year + 543
+
     try:
         d = date(year_ce, month, day)
     except ValueError:
@@ -77,7 +77,7 @@ def parse_ddmmyyyy_th(s: str) -> dict:
     return {"date_obj": d, "calendar": "BE" if is_be else "CE", "year_ce": year_ce, "year_be": year_be}
 
 # ------------------------------
-# ฟังก์ชันอื่นเดิม (ไม่เปลี่ยน)
+# Utility Functions
 # ------------------------------
 def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optional[str] = "00:00") -> str:
     try:
@@ -130,7 +130,7 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
 @app.middleware("http")
 async def auto_validate_middleware(request: Request, call_next):
     if request.method == "GET":
-        # 🔹 ป้องกันตรวจซ้ำ endpoint ตัวเอง
+        # 🔹 ป้องกัน recursive validation ของ endpoint ตัวเอง
         if request.url.path == "/api/validate-weekday":
             return await call_next(request)
         q = dict(request.query_params)
@@ -138,7 +138,6 @@ async def auto_validate_middleware(request: Request, call_next):
             tz = q.get("timezone", "Asia/Bangkok")
             validated = ensure_verified_date(q["date"], tz)
             request.state.validated_date = validated
-
     response = await call_next(request)
     try:
         body = b"".join([chunk async for chunk in response.body_iterator])
@@ -157,7 +156,7 @@ async def auto_validate_middleware(request: Request, call_next):
 # ------------------------------
 @app.get("/")
 def root():
-    return {"message": "Astro Weekday API (v2.6.1 – Auto Validation Middleware) 🚀"}
+    return {"message": "Astro Weekday API (v2.6.2 – Full Production) 🚀"}
 
 @app.get("/health")
 def health():
@@ -171,7 +170,7 @@ def validate_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
     return ensure_verified_date(date, timezone)
 
 # ------------------------------
-# Endpoint ทั้งหมด (ปรับให้ตรวจวันครบ)
+# /api/weekday
 # ------------------------------
 @app.get("/api/weekday")
 def get_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
@@ -189,6 +188,9 @@ def get_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
     result.update(verified)
     return result
 
+# ------------------------------
+# /api/weekday-th
+# ------------------------------
 @app.get("/api/weekday-th")
 def get_weekday_th(date: str, style: Optional[str] = "short", timezone: Optional[str] = "Asia/Bangkok"):
     verified = ensure_verified_date(date, timezone)
@@ -201,6 +203,9 @@ def get_weekday_th(date: str, style: Optional[str] = "short", timezone: Optional
     payload.update(verified)
     return {"input": {"date": date, "style": style, "timezone": timezone}, **payload}
 
+# ------------------------------
+# /api/astro-weekday
+# ------------------------------
 @app.get("/api/astro-weekday")
 def get_astro_weekday(date: str, time: Optional[str] = None,
                       timezone: Optional[str] = "Asia/Bangkok",
@@ -221,10 +226,14 @@ def get_astro_weekday(date: str, time: Optional[str] = None,
         "year_be": p["year_be"], "year_ce": p["year_ce"],
         "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat()
     }
-    if place: result["place"] = place
+    if place:
+        result["place"] = place
     result.update(verified)
     return result
 
+# ------------------------------
+# /api/astro-chart
+# ------------------------------
 @app.get("/api/astro-chart")
 def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok",
                     lat: float = 13.75, lon: float = 100.5):
@@ -246,6 +255,9 @@ def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok",
     result.update(verified)
     return result
 
+# ------------------------------
+# /api/astro-transit
+# ------------------------------
 @app.get("/api/astro-transit")
 def get_astro_transit(base_date: str, base_time: str = "12:00",
                       target_date: Optional[str] = None,
@@ -280,6 +292,9 @@ def get_astro_transit(base_date: str, base_time: str = "12:00",
     result.update(verified_base)
     return result
 
+# ------------------------------
+# /api/astro-match
+# ------------------------------
 @app.get("/api/astro-match")
 def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
                     date2: str, time2: str, lat2: float, lon2: float,
@@ -294,12 +309,15 @@ def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
     sys2 = detect_zodiac_system(lat2, lon2, timezone)
     c1 = astro_chart.compute_chart(d1, time1, timezone, lat1, lon1, sys1)
     c2 = astro_chart.compute_chart(d2, time2, timezone, lat2, lon2, sys2)
-    score = 0; comments = []
+    score = 0
+    comments = []
     for p in ["Sun", "Moon", "Venus", "Mars"]:
         if c1[p]["sign"] == c2[p]["sign"]:
-            score += 25; comments.append(f"{p}: อยู่ราศีเดียวกัน (เข้าใจกันง่าย)")
+            score += 25
+            comments.append(f"{p}: อยู่ราศีเดียวกัน (เข้าใจกันง่าย)")
         elif abs(c1[p]["lon"] - c2[p]["lon"]) < 30:
-            score += 15; comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
+            score += 15
+            comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
         else:
             comments.append(f"{p}: ต่างราศี (ต้องปรับตัว)")
     result = {"person1": {"date": date1, "time": time1, "system": sys1},
@@ -308,6 +326,9 @@ def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
     result.update(verified1)
     return result
 
+# ------------------------------
+# /openapi.yaml
+# ------------------------------
 @app.get("/openapi.yaml")
 def get_openapi_yaml():
     import os
