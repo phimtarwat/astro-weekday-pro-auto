@@ -2,6 +2,7 @@ from datetime import datetime, date
 from typing import Optional
 import re
 import zoneinfo
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -11,7 +12,7 @@ import flatlib_lite as astro_chart
 # ✅ สำหรับระบบ Pro-Auto (ตรวจประเทศ/โซนเวลา)
 from geopy.geocoders import Nominatim
 
-app = FastAPI(title="Astro Weekday API", version="2.6.0")
+app = FastAPI(title="Astro Weekday API", version="2.6.1")
 
 # ------------------------------
 # ค่าคงที่ภาษาไทย
@@ -27,47 +28,57 @@ MONTHS_TH_SHORT = [
 ]
 
 # ------------------------------
+# ✅ ตรวจสอบวันจริงผ่าน API กลาง (Pre-Validation)
+# ------------------------------
+def ensure_verified_date(date_str: str, timezone: str = "Asia/Bangkok") -> dict:
+    try:
+        url = "https://astro-weekday-pro-auto.vercel.app/api/validate-weekday"
+        resp = requests.get(url, params={"date": date_str, "timezone": timezone}, timeout=5)
+        data = resp.json()
+        if not data.get("verified"):
+            raise ValueError("verify_fail")
+        return data
+    except Exception:
+        return {"verified": False, "verified_text": "⚠️ ไม่สามารถยืนยันวันได้"}
+
+# ------------------------------
 # Smart Date Parser (รองรับทุก format)
 # ------------------------------
 def parse_ddmmyyyy_th(s: str) -> dict:
-    """รองรับทุก format: DD/MM/YYYY, YYYY-MM-DD, 27-10-68, ฯลฯ"""
     s = s.strip()
     if not s:
         raise HTTPException(status_code=400, detail="กรุณาระบุวันที่")
 
-    # ปรับตัวคั่นให้เป็น '/'
     s = re.sub(r"[-. ]", "/", s)
     parts = [p for p in s.split("/") if p]
     if len(parts) != 3:
         raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ต้องมี 3 ส่วน เช่น 27/10/2568)")
 
     try:
-        if len(parts[0]) == 4:  # YYYY/MM/DD
+        if len(parts[0]) == 4:
             year, month, day = map(int, parts)
         else:
             day, month, year = map(int, parts)
     except Exception:
         raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง (ตัวเลขไม่สมบูรณ์)")
 
-    # ปี 2 หลัก → เติม พ.ศ.
     if year < 100:
         year += 2500
-
     if year < 1800 or year > 2700:
         raise HTTPException(status_code=400, detail="ปีไม่สมเหตุสมผล (ตรวจสอบ พ.ศ./ค.ศ.)")
 
     is_be = year > 2400
     year_ce = year - 543 if is_be else year
     year_be = year if is_be else year + 543
-
     try:
         d = date(year_ce, month, day)
     except ValueError:
         d = date(year_ce, month, 28)
-
     return {"date_obj": d, "calendar": "BE" if is_be else "CE", "year_ce": year_ce, "year_be": year_be}
 
-
+# ------------------------------
+# ฟังก์ชันอื่นเดิม (ไม่เปลี่ยน)
+# ------------------------------
 def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optional[str] = "00:00") -> str:
     try:
         tz = zoneinfo.ZoneInfo(timezone)
@@ -76,7 +87,6 @@ def get_local_weekday(d: date, timezone: str = "Asia/Bangkok", time_str: Optiona
     t = datetime.strptime(time_str or "00:00", "%H:%M").time()
     dt_local = datetime.combine(d, t).replace(tzinfo=tz)
     return DAYS_TH[dt_local.weekday()]
-
 
 def format_thai_date(d: date, style: str = "short", weekday_name: Optional[str] = None,
                      year_be: Optional[int] = None, year_ce: Optional[int] = None) -> dict:
@@ -94,7 +104,6 @@ def format_thai_date(d: date, style: str = "short", weekday_name: Optional[str] 
         "thai_date": thai_long if style == "long" else thai_short,
         "year_be": y_be, "year_ce": y_ce
     }
-
 
 def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
     tz_lower = (timezone or "").lower()
@@ -115,43 +124,26 @@ def detect_zodiac_system(lat: float, lon: float, timezone: str) -> str:
     except Exception:
         return "sidereal" if "asia/" in tz_lower else "tropical"
 
-
-def validate_real_weekday(date: str, timezone: str = "Asia/Bangkok") -> dict:
-    parsed = parse_ddmmyyyy_th(date)
-    d = parsed["date_obj"]
-    weekday = get_local_weekday(d, timezone)
-    payload = format_thai_date(d, "long", weekday, parsed["year_be"], parsed["year_ce"])
-    return {
-        "verified": True,
-        "weekday_full": payload["weekday_full"],
-        "thai_date_long": payload["thai_date_long"],
-        "verified_text": f"✅ ตรวจสอบแล้ว: {payload['thai_date_long']} (ตรงตามปฏิทินจริง)"
-    }
-
 # ------------------------------
-# ✅ Middleware: ตรวจวันจริงก่อนทุก response ที่มี date
+# Middleware ตรวจวันจริงก่อน response
 # ------------------------------
 @app.middleware("http")
 async def auto_validate_middleware(request: Request, call_next):
-    """ตรวจสอบวันจริงอัตโนมัติในทุก endpoint ที่มีพารามิเตอร์ 'date'"""
     if request.method == "GET":
         q = dict(request.query_params)
         if "date" in q:
-            try:
-                tz = q.get("timezone", "Asia/Bangkok")
-                validated = validate_real_weekday(q["date"], tz)
-                request.state.validated_date = validated
-            except Exception:
-                # ไม่หยุดระบบ แต่เพิ่ม flag ว่า validation ล้มเหลว
-                request.state.validated_date = {"verified": False, "verified_text": "⚠️ ตรวจวันไม่สำเร็จ"}
+            tz = q.get("timezone", "Asia/Bangkok")
+            validated = ensure_verified_date(q["date"], tz)
+            request.state.validated_date = validated
     response = await call_next(request)
-    # แทรก verified_text เข้า response JSON (ถ้าเป็น JSON)
     try:
         body = b"".join([chunk async for chunk in response.body_iterator])
         import json
         data = json.loads(body)
         if hasattr(request.state, "validated_date") and isinstance(data, dict):
             data.update(request.state.validated_date)
+        if not data.get("verified", False):
+            data["verified_text"] = "⚠️ ไม่สามารถยืนยันวันได้"
         return JSONResponse(content=data, status_code=response.status_code)
     except Exception:
         return response
@@ -161,7 +153,7 @@ async def auto_validate_middleware(request: Request, call_next):
 # ------------------------------
 @app.get("/")
 def root():
-    return {"message": "Astro Weekday API (v2.6.0 – Auto Validation Middleware) 🚀"}
+    return {"message": "Astro Weekday API (v2.6.1 – Auto Validation Middleware) 🚀"}
 
 @app.get("/health")
 def health():
@@ -172,38 +164,46 @@ def health():
 # ------------------------------
 @app.get("/api/validate-weekday")
 def validate_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
-    return validate_real_weekday(date, timezone)
+    return ensure_verified_date(date, timezone)
 
 # ------------------------------
-# Endpoint เดิมทั้งหมด (คงครบ)
+# Endpoint ทั้งหมด (ปรับให้ตรวจวันครบ)
 # ------------------------------
 @app.get("/api/weekday")
 def get_weekday(date: str, timezone: Optional[str] = "Asia/Bangkok"):
+    verified = ensure_verified_date(date, timezone)
+    if not verified.get("verified", False):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันได้")
     p = parse_ddmmyyyy_th(date)
     d = p["date_obj"]
     weekday = get_local_weekday(d, timezone)
-    return {
-        "date": date,
-        "timezone": timezone,
-        "weekday": weekday,
-        "calendar": p["calendar"],
-        "year_be": p["year_be"],
-        "year_ce": p["year_ce"],
+    result = {
+        "date": date, "timezone": timezone, "weekday": weekday,
+        "calendar": p["calendar"], "year_be": p["year_be"], "year_ce": p["year_ce"],
         "resolved_gregorian": d.isoformat()
     }
+    result.update(verified)
+    return result
 
 @app.get("/api/weekday-th")
 def get_weekday_th(date: str, style: Optional[str] = "short", timezone: Optional[str] = "Asia/Bangkok"):
+    verified = ensure_verified_date(date, timezone)
+    if not verified.get("verified", False):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันได้")
     p = parse_ddmmyyyy_th(date)
     d = p["date_obj"]
     weekday_full = get_local_weekday(d, timezone)
     payload = format_thai_date(d, style, weekday_full, p["year_be"], p["year_ce"])
+    payload.update(verified)
     return {"input": {"date": date, "style": style, "timezone": timezone}, **payload}
 
 @app.get("/api/astro-weekday")
 def get_astro_weekday(date: str, time: Optional[str] = None,
                       timezone: Optional[str] = "Asia/Bangkok",
                       place: Optional[str] = None):
+    verified = ensure_verified_date(date, timezone)
+    if not verified.get("verified", False):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันได้")
     p = parse_ddmmyyyy_th(date)
     d = p["date_obj"]
     t = datetime.strptime(time or "00:00", "%H:%M").time()
@@ -218,11 +218,15 @@ def get_astro_weekday(date: str, time: Optional[str] = None,
         "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat()
     }
     if place: result["place"] = place
+    result.update(verified)
     return result
 
 @app.get("/api/astro-chart")
 def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok",
                     lat: float = 13.75, lon: float = 100.5):
+    verified = ensure_verified_date(date, timezone)
+    if not verified.get("verified", False):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันได้")
     p = parse_ddmmyyyy_th(date)
     d = p["date_obj"]
     zodiac = detect_zodiac_system(lat, lon, timezone)
@@ -230,17 +234,26 @@ def get_astro_chart(date: str, time: str, timezone: str = "Asia/Bangkok",
     tz = zoneinfo.ZoneInfo(timezone)
     dt_local = datetime.combine(d, datetime.strptime(time, "%H:%M").time()).replace(tzinfo=tz)
     dt_utc = dt_local.astimezone(zoneinfo.ZoneInfo("UTC"))
-    return {
+    result = {
         "input": {"date": date, "time": time, "timezone": timezone, "lat": lat, "lon": lon, "auto_system": zodiac},
         "calendar": p["calendar"], "year_be": p["year_be"], "year_ce": p["year_ce"],
         "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat(), "planets": planets
     }
+    result.update(verified)
+    return result
 
 @app.get("/api/astro-transit")
 def get_astro_transit(base_date: str, base_time: str = "12:00",
                       target_date: Optional[str] = None,
                       lat: float = 13.75, lon: float = 100.5,
                       timezone: str = "Asia/Bangkok"):
+    verified_base = ensure_verified_date(base_date, timezone)
+    if not verified_base.get("verified", False):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันเกิดได้")
+    if target_date:
+        verified_target = ensure_verified_date(target_date, timezone)
+        if not verified_target.get("verified", False):
+            raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันจรได้")
     base_p = parse_ddmmyyyy_th(base_date)
     base_d = base_p["date_obj"]
     target_p = parse_ddmmyyyy_th(target_date) if target_date else {"date_obj": datetime.now(zoneinfo.ZoneInfo(timezone)).date()}
@@ -257,14 +270,20 @@ def get_astro_transit(base_date: str, base_time: str = "12:00",
                 interactions.append(f"{p}: ดาวจรทับดาวเดิม (แรง)")
             elif 170 <= diff <= 190:
                 interactions.append(f"{p}: ดาวจรเล็งดาวเดิม (กดดัน)")
-    return {"system": zodiac, "natal_date": base_date,
-            "target_date": target_d.strftime("%d/%m/%Y"),
-            "natal": natal, "transit": transit, "analysis": interactions}
+    result = {"system": zodiac, "natal_date": base_date,
+              "target_date": target_d.strftime("%d/%m/%Y"),
+              "natal": natal, "transit": transit, "analysis": interactions}
+    result.update(verified_base)
+    return result
 
 @app.get("/api/astro-match")
 def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
                     date2: str, time2: str, lat2: float, lon2: float,
                     timezone: str = "Asia/Bangkok"):
+    verified1 = ensure_verified_date(date1, timezone)
+    verified2 = ensure_verified_date(date2, timezone)
+    if not (verified1.get("verified") and verified2.get("verified")):
+        raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันใดวันหนึ่งได้")
     d1 = parse_ddmmyyyy_th(date1)["date_obj"]
     d2 = parse_ddmmyyyy_th(date2)["date_obj"]
     sys1 = detect_zodiac_system(lat1, lon1, timezone)
@@ -279,9 +298,11 @@ def get_astro_match(date1: str, time1: str, lat1: float, lon1: float,
             score += 15; comments.append(f"{p}: ระยะใกล้กัน (สัมพันธ์ดี)")
         else:
             comments.append(f"{p}: ต่างราศี (ต้องปรับตัว)")
-    return {"person1": {"date": date1, "time": time1, "system": sys1},
-            "person2": {"date": date2, "time": time2, "system": sys2},
-            "score": min(score, 100), "comments": comments}
+    result = {"person1": {"date": date1, "time": time1, "system": sys1},
+              "person2": {"date": date2, "time": time2, "system": sys2},
+              "score": min(score, 100), "comments": comments}
+    result.update(verified1)
+    return result
 
 @app.get("/openapi.yaml")
 def get_openapi_yaml():
