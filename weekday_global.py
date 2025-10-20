@@ -503,6 +503,71 @@ def get_openapi_yaml():
 # ------------------------------
 # Run local
 # ------------------------------
+
+# ------------------------------
+# 18) /api/geo-suggest (เดาเมือง/ประเทศ + พิกัด/โซนเวลา)
+# ------------------------------
+@app.get("/api/geo-suggest")
+def geo_suggest(query: str):
+    """🔮 เดาและแนะนำเมือง/ประเทศ/timezone/พิกัด จากข้อความสั้น ๆ (offline)"""
+    if not query:
+        raise HTTPException(status_code=400, detail="กรุณาระบุข้อความค้นหา")
+
+    q = query.strip().lower()
+
+    # รวมรายการเมือง + ประเทศ จากฐานข้อมูลภายใน
+    all_places = list(_CITY_COORDS.keys()) + list(_COUNTRY_TZ.keys())
+
+    # หาคำใกล้เคียงที่สุด
+    best_match = autocorrect_name(q, all_places)
+
+    # ถ้าเจอเมือง
+    if best_match in _CITY_COORDS:
+        lat, lon = _CITY_COORDS[best_match]
+        # เดาประเทศจากโซนเวลา
+        country_guess = "Thailand"
+        tz_guess = "Asia/Bangkok"
+        for ctry, tz in _COUNTRY_TZ.items():
+            if tz.split("/")[0].lower() in tz_guess.lower() or best_match in tz.lower():
+                country_guess = ctry.title()
+                tz_guess = tz
+                break
+        return {
+            "query": query,
+            "type": "city",
+            "match": best_match.title(),
+            "country": country_guess,
+            "timezone": tz_guess,
+            "lat": lat,
+            "lon": lon,
+            "confidence": 0.95 if best_match != q else 1.0
+        }
+
+    # ถ้าเจอประเทศ
+    elif best_match in _COUNTRY_TZ:
+        tz = _COUNTRY_TZ[best_match]
+        return {
+            "query": query,
+            "type": "country",
+            "match": best_match.title(),
+            "timezone": tz,
+            "lat": None,
+            "lon": None,
+            "confidence": 0.95 if best_match != q else 1.0
+        }
+
+    # ถ้าไม่พบเลย → fallback
+    else:
+        return {
+            "query": query,
+            "type": "unknown",
+            "match": "-",
+            "timezone": "Asia/Bangkok",
+            "lat": 13.75,
+            "lon": 100.5,
+            "confidence": 0.0
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("weekday_global:app", host="0.0.0.0", port=8000, reload=True)
