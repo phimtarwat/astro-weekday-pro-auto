@@ -1,17 +1,41 @@
 openapi: 3.1.0
 info:
-  title: Astro Weekday API (v2.6.0 – Auto Validation Middleware)
-  version: "2.6.0"
+  title: Astro Weekday API (v2.7.0 – Full Dual Calendar + Local Fallback)
+  version: "2.7.0"
   description: |
     API สำหรับตรวจสอบวันจริง, คำนวณพื้นดวง / ดาวจร / ดวงคู่
-    พร้อมระบบ Auto Validation ที่ตรวจสอบวันจริงอัตโนมัติทุกครั้ง
-    รองรับทุก format วันที่ (DD/MM/YYYY, YYYY-MM-DD, 27-10-68 ฯลฯ)
-    ป้องกันความสับสนระหว่าง พ.ศ. และ ค.ศ. และรองรับ timezone ทั่วโลก
+    พร้อมระบบ Auto Validation Middleware
+    ที่ตรวจสอบวันจริงจาก API กลาง และ fallback ทันทีเมื่อระบบ offline
+    
+    ✅ รองรับทั้ง พ.ศ. / ค.ศ.
+    ✅ รองรับทุก format วันที่ (DD/MM/YYYY, YYYY-MM-DD, 27-10-68 ฯลฯ)
+    ✅ รองรับ timezone ทั่วโลก (Asia/Bangkok เป็นค่าเริ่มต้น)
+    ✅ ป้องกันวันคลาดเคลื่อน และตรวจสอบความถูกต้องอัตโนมัติ
 
 servers:
   - url: https://astro-weekday-pro-auto.vercel.app
 
 paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: ตรวจสอบสถานะระบบ (Health Check)
+      description: ใช้สำหรับตรวจสอบว่า API ทำงานปกติ และปลุก instance บน Vercel
+      responses:
+        "200":
+          description: Successful Health Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "พร้อมใช้งาน"
+
   /api/validate-weekday:
     get:
       operationId: validateWeekday
@@ -23,7 +47,6 @@ paths:
           schema:
             type: string
             example: "2025-10-27"
-          description: วันที่รูปแบบใดก็ได้ (DD/MM/YYYY, YYYY-MM-DD, 27-10-68)
         - name: timezone
           in: query
           required: false
@@ -38,18 +61,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  verified:
-                    type: boolean
-                    example: true
-                  verified_text:
-                    type: string
-                    example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"
-                  weekday_full:
-                    type: string
-                    example: "จันทร์"
-                  thai_date_long:
-                    type: string
-                    example: "วันจันทร์ที่ 27 ตุลาคม 2568 (ค.ศ. 2025)"
+                  verified: {type: boolean, example: true}
+                  verified_source: {type: string, example: "local"}  # external / local
+                  verified_text: {type: string, example: "✅ ตรวจวันสำเร็จ (Local Fallback)"}
+                  weekday_full: {type: string, example: "จันทร์"}
+                  thai_date_long: {type: string, example: "วันจันทร์ที่ 27 ตุลาคม 2568 (ค.ศ. 2025)"}
 
   /api/weekday:
     get:
@@ -59,15 +75,11 @@ paths:
         - name: date
           in: query
           required: true
-          schema:
-            type: string
-            example: "27/10/2568"
+          schema: {type: string, example: "27/10/2568"}
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
       responses:
         "200":
           description: Successful Response
@@ -79,11 +91,9 @@ paths:
                   date: {type: string, example: "27/10/2568"}
                   timezone: {type: string, example: "Asia/Bangkok"}
                   weekday: {type: string, example: "จันทร์"}
-                  calendar: {type: string, example: "BE"}
-                  year_be: {type: integer, example: 2568}
-                  year_ce: {type: integer, example: 2025}
                   verified: {type: boolean, example: true}
-                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
+                  verified_source: {type: string, example: "external"}
+                  verified_text: {type: string, example: "✅ ตรวจวันสำเร็จ (API กลาง)"}
 
   /api/weekday-th:
     get:
@@ -93,9 +103,7 @@ paths:
         - name: date
           in: query
           required: true
-          schema:
-            type: string
-            example: "27-10-68"
+          schema: {type: string, example: "27-10-68"}
         - name: style
           in: query
           required: false
@@ -106,9 +114,7 @@ paths:
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
       responses:
         "200":
           description: Successful Response
@@ -120,7 +126,7 @@ paths:
                   thai_date_long: {type: string, example: "วันจันทร์ที่ 27 ตุลาคม 2568 (ค.ศ. 2025)"}
                   weekday_full: {type: string, example: "จันทร์"}
                   verified: {type: boolean, example: true}
-                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
+                  verified_text: {type: string, example: "✅ ตรวจวันสำเร็จ (Local Fallback)"}
 
   /api/astro-weekday:
     get:
@@ -130,27 +136,19 @@ paths:
         - name: date
           in: query
           required: true
-          schema:
-            type: string
-            example: "2025-10-27"
+          schema: {type: string, example: "2025-10-27"}
         - name: time
           in: query
           required: false
-          schema:
-            type: string
-            example: "11:00"
+          schema: {type: string, example: "11:00"}
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
         - name: place
           in: query
           required: false
-          schema:
-            type: string
-            example: "Bangkok"
+          schema: {type: string, example: "Bangkok"}
       responses:
         "200":
           description: Successful Response
@@ -161,7 +159,7 @@ paths:
                 properties:
                   weekday: {type: string, example: "จันทร์"}
                   verified: {type: boolean, example: true}
-                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันจันทร์ที่ 27 ตุลาคม 2568 (ตรงตามปฏิทินจริง)"}
+                  verified_text: {type: string, example: "✅ ตรวจวันสำเร็จ (Local Fallback)"}
                   local_datetime: {type: string, example: "2025-10-27T11:00:00+07:00"}
                   utc_datetime: {type: string, example: "2025-10-27T04:00:00+00:00"}
 
@@ -173,33 +171,23 @@ paths:
         - name: date
           in: query
           required: true
-          schema:
-            type: string
-            example: "24/11/2514"
+          schema: {type: string, example: "24/11/2514"}
         - name: time
           in: query
           required: true
-          schema:
-            type: string
-            example: "11:00"
+          schema: {type: string, example: "11:00"}
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
         - name: lat
           in: query
           required: false
-          schema:
-            type: number
-            example: 13.75
+          schema: {type: number, example: 13.75}
         - name: lon
           in: query
           required: false
-          schema:
-            type: number
-            example: 100.5
+          schema: {type: number, example: 100.5}
       responses:
         "200":
           description: Successful Response
@@ -209,50 +197,38 @@ paths:
                 type: object
                 properties:
                   verified: {type: boolean, example: true}
-                  verified_text: {type: string, example: "✅ ตรวจสอบแล้ว: วันพุธที่ 24 พฤศจิกายน 2514 (ตรงตามปฏิทินจริง)"}
+                  verified_text: {type: string, example: "✅ ตรวจวันสำเร็จ (Local Fallback)"}
                   planets: {type: object}
 
   /api/astro-transit:
     get:
       operationId: getAstroTransit
-      summary: วิเคราะห์ดาวจรเทียบพื้นดวง
+      summary: วิเคราะห์ดาวจรเทียบพื้นดวง (Auto Validation)
       parameters:
         - name: base_date
           in: query
           required: true
-          schema:
-            type: string
-            example: "24/11/2514"
+          schema: {type: string, example: "24/11/2514"}
         - name: base_time
           in: query
           required: false
-          schema:
-            type: string
-            example: "12:00"
+          schema: {type: string, example: "12:00"}
         - name: target_date
           in: query
           required: false
-          schema:
-            type: string
-            example: "08/05/2569"
+          schema: {type: string, example: "08/05/2569"}
         - name: lat
           in: query
           required: false
-          schema:
-            type: number
-            example: 13.75
+          schema: {type: number, example: 13.75}
         - name: lon
           in: query
           required: false
-          schema:
-            type: number
-            example: 100.5
+          schema: {type: number, example: 100.5}
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
       responses:
         "200":
           description: Successful Response
@@ -260,62 +236,44 @@ paths:
   /api/astro-match:
     get:
       operationId: getAstroMatch
-      summary: วิเคราะห์ดวงคู่ (ความสัมพันธ์)
+      summary: วิเคราะห์ดวงคู่ (ความสัมพันธ์ + Auto Validation)
       parameters:
         - name: date1
           in: query
           required: true
-          schema:
-            type: string
-            example: "24/11/2514"
+          schema: {type: string, example: "24/11/2514"}
         - name: time1
           in: query
           required: true
-          schema:
-            type: string
-            example: "11:00"
+          schema: {type: string, example: "11:00"}
         - name: lat1
           in: query
           required: true
-          schema:
-            type: number
-            example: 13.75
+          schema: {type: number, example: 13.75}
         - name: lon1
           in: query
           required: true
-          schema:
-            type: number
-            example: 100.5
+          schema: {type: number, example: 100.5}
         - name: date2
           in: query
           required: true
-          schema:
-            type: string
-            example: "08/06/2514"
+          schema: {type: string, example: "08/06/2514"}
         - name: time2
           in: query
           required: true
-          schema:
-            type: string
-            example: "23:56"
+          schema: {type: string, example: "23:56"}
         - name: lat2
           in: query
           required: true
-          schema:
-            type: number
-            example: 18.79
+          schema: {type: number, example: 18.79}
         - name: lon2
           in: query
           required: true
-          schema:
-            type: number
-            example: 98.98
+          schema: {type: number, example: 98.98}
         - name: timezone
           in: query
           required: false
-          schema:
-            type: string
-            example: "Asia/Bangkok"
+          schema: {type: string, example: "Asia/Bangkok"}
       responses:
         "200":
           description: Successful Response
