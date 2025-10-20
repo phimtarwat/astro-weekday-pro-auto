@@ -14,6 +14,21 @@ from geopy.geocoders import Nominatim
 
 app = FastAPI(title="Astro Weekday API", version="2.6.4 (Full Dual Calendar + Fallback)")
 
+# ✅ 1. --- ใส่ Pre-Validation Layer ตรงนี้ ---
+def validate_date(date_str: str):
+    """ตรวจสอบและแปลงวันที่ (รองรับทั้ง พ.ศ. / ค.ศ.)"""
+    try:
+        parts = re.split(r"[-/]", date_str)
+        y = int(parts[-1])
+        if y > 2400:
+            y -= 543
+            parts[-1] = str(y)
+        date_str = "/".join(parts)
+        dt = datetime.datetime.strptime(date_str, "%d/%m/%Y")
+        return True, dt
+    except Exception as e:
+        return False, str(e)
+
 # ------------------------------
 # ค่าคงที่ภาษาไทย
 # ------------------------------
