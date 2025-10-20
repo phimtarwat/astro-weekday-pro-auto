@@ -1,6 +1,6 @@
 {
   "builds": [
-    { "src": "weekday.py", "use": "@vercel/python" }
+    { "src": "weekday_global.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "weekday.py" }
