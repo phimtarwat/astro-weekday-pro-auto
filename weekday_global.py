@@ -361,15 +361,23 @@ def get_astro_weekday(date: str, time: Optional[str] = None,
     }
 
 # ------------------------------
-# 14) /api/astro-chart (Global + Offline)
+# 14) /api/astro-chart (Global + Self-Healing)
 # ------------------------------
 @app.get("/api/astro-chart")
 def get_astro_chart(date: str, time: str,
                     timezone: Optional[str] = None,
                     lat: Optional[float] = None,
                     lon: Optional[float] = None,
-                    country: Optional[str] = "Thailand",
+                    country: Optional[str] = None,
                     place: Optional[str] = None):
+    """
+    วิเคราะห์พื้นดวงแบบ Global Self-Healing:
+    ✅ พิมพ์ชื่อเมือง/ประเทศผิด → auto-correct
+    ✅ ไม่ใส่ timezone → เดาจากประเทศ
+    ✅ ไม่ใส่ lat/lon → ดึงจากเมือง
+    ✅ ใช้ Local Engine 100%
+    """
+    # 🧩 ตรวจวันก่อน
     verified = ensure_verified_date(date, timezone or "Asia/Bangkok")
     if not verified.get("verified", False):
         raise HTTPException(status_code=400, detail="ไม่สามารถยืนยันวันได้")
@@ -377,25 +385,49 @@ def get_astro_chart(date: str, time: str,
     p = parse_ddmmyyyy_th(date)
     d = p["date_obj"]
 
-    tz_str = timezone or detect_timezone_by_country(country)
-    if place and (lat is None or lon is None):
-        lat, lon = get_city_coords(place)
-    lat = lat if lat is not None else 13.75
-    lon = lon if lon is not None else 100.5
+    # 🌎 เริ่มระบบ auto-detect
+    tz_str = timezone
+    country_final = country or "Thailand"
+    place_final = place or "Bangkok"
 
+    # 🔍 Auto-correct ประเทศ / เมือง
+    country_final = autocorrect_name(country_final, list(_COUNTRY_TZ.keys()))
+    place_final = autocorrect_name(place_final, list(_CITY_COORDS.keys()))
+
+    # 🔭 ดึง timezone ถ้าไม่ได้ใส่มา
+    tz_str = tz_str or detect_timezone_by_country(country_final)
+
+    # 📍 ดึง lat/lon ถ้าไม่ได้ระบุ
+    if lat is None or lon is None:
+        lat, lon = get_city_coords(place_final)
+
+    # 🪐 ตรวจระบบโหราศาสตร์ (sidereal/tropical)
+    zodiac = detect_zodiac_system(lat, lon, tz_str, country_final)
+
+    # 🕒 คำนวณเวลา UTC
     dt_utc = convert_to_utc(d, time, tz_str)
     dt_local = dt_utc.astimezone(zoneinfo.ZoneInfo(tz_str))
 
-    zodiac = detect_zodiac_system(lat, lon, tz_str, country)
+    # 🪐 คำนวณดาวจริง
     planets = astro_chart.compute_chart(d, time, tz_str, lat, lon, zodiac)
 
+    # 📦 ส่งผลลัพธ์รวม
     return {
         "input": {
-            "date": date, "time": time, "country": country, "place": place or "-",
-            "timezone": tz_str, "lat": lat, "lon": lon, "system": zodiac
+            "date": date,
+            "time": time,
+            "place": place_final.title(),
+            "country": country_final.title(),
+            "timezone": tz_str,
+            "lat": round(lat, 4),
+            "lon": round(lon, 4),
+            "system": zodiac
         },
-        "calendar": p["calendar"], "year_be": p["year_be"], "year_ce": p["year_ce"],
-        "local_datetime": dt_local.isoformat(), "utc_datetime": dt_utc.isoformat(),
+        "calendar": p["calendar"],
+        "year_be": p["year_be"],
+        "year_ce": p["year_ce"],
+        "local_datetime": dt_local.isoformat(),
+        "utc_datetime": dt_utc.isoformat(),
         "planets": planets,
         **verified
     }
